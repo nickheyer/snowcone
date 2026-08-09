@@ -48,7 +48,7 @@ impl OsRelease {
     }
 
     /// True when this distro is, or descends from, `id` (checks `ID` and
-    /// `ID_LIKE`) — how backends decide "am I the native manager here".
+    /// `ID_LIKE`) - how backends decide "am I the native manager here".
     pub fn is_like(&self, id: &str) -> bool {
         self.id
             .as_deref()

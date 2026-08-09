@@ -2,7 +2,7 @@
 //!
 //! Formula-only: casks are macOS-side and never appear on Linux. brew runs
 //! strictly unprivileged, so nothing elevates. Version pinning is not
-//! advertised — brew's `name@version` formulae (`python@3.11`) are distinct
+//! advertised - brew's `name@version` formulae (`python@3.11`) are distinct
 //! formula *names*, not a version selector, so a pinned request is rejected
 //! rather than mistranslated.
 

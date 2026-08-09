@@ -1,7 +1,7 @@
 //! The operation set and per-backend capability flags.
 //!
 //! The interface is the broadest *common* subset of what every package
-//! manager in the README can do. Only four operations are truly universal —
+//! manager in the README can do. Only four operations are truly universal -
 //! even `dpkg`, `rpm`, and Slackware's pkgtools can install, remove, list
 //! what is installed, and show metadata. Everything past that (remote
 //! search, index refresh, upgrade, outdated listing) is widespread but not
@@ -27,6 +27,16 @@ pub enum Operation {
 }
 
 impl Operation {
+    /// Whether this operation changes package state (as opposed to reading
+    /// it). Mutating operations are what confirmation prompts, elevation,
+    /// and one-at-a-time scheduling care about.
+    pub const fn mutates(self) -> bool {
+        matches!(
+            self,
+            Operation::Install | Operation::Remove | Operation::Upgrade | Operation::Refresh
+        )
+    }
+
     /// The capability bit a backend must advertise to support this operation.
     pub const fn capability(self) -> Capabilities {
         match self {
@@ -71,7 +81,7 @@ bitflags! {
         const UPGRADE = 1 << 6;
         const LIST_OUTDATED = 1 << 7;
         /// Can install a caller-chosen version rather than only the latest
-        /// (apt `pkg=ver`, pip `pkg==ver`, npm `pkg@ver` — but not pacman).
+        /// (apt `pkg=ver`, pip `pkg==ver`, npm `pkg@ver` - but not pacman).
         const PIN_VERSION = 1 << 8;
     }
 }

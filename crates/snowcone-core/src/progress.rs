@@ -13,8 +13,15 @@ pub enum OutputStream {
 pub enum ProgressEvent {
     /// Backend status message ("resolving dependencies…").
     Status(String),
-    /// A raw line of subprocess output.
-    Line { stream: OutputStream, text: String },
+    /// A raw line of subprocess output. `transient` lines were terminated
+    /// by a bare carriage return - the tool meant to overwrite them (progress
+    /// bars), so renderers should replace the previous transient line rather
+    /// than append.
+    Line {
+        stream: OutputStream,
+        text: String,
+        transient: bool,
+    },
     /// Determinate progress, when the backend can tell.
     Progress { current: u64, total: u64 },
 }

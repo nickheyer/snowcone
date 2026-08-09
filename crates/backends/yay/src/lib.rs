@@ -2,7 +2,7 @@
 //!
 //! yay is a pacman-compatible AUR helper: repo and AUR packages live in the
 //! same alpm database and share the pacman flag vocabulary. yay escalates
-//! through sudo on its own — snowcone never elevates it, because makepkg
+//! through sudo on its own - snowcone never elevates it, because makepkg
 //! refuses to run as root.
 
 use std::path::PathBuf;
@@ -10,7 +10,8 @@ use std::path::PathBuf;
 use async_trait::async_trait;
 use snowcone_core::{
     BackendFactory, Capabilities, Cmd, Detection, Elevator, Error, HostInfo, InstallState,
-    ManagerKind, OpContext, Package, PackageManager, PackageRequest, Result, find_program,
+    ManagerKind, OpContext, Operation, Package, PackageManager, PackageRequest, Result,
+    find_program,
 };
 
 const ID: &str = "yay";
@@ -114,6 +115,12 @@ impl PackageManager for Manager {
             | Capabilities::REFRESH
             | Capabilities::UPGRADE
             | Capabilities::LIST_OUTDATED
+    }
+
+    /// yay drives sudo itself for alpm mutations - snowcone never elevates
+    /// it, but a credential prompt is still coming.
+    fn needs_elevation(&self, operation: Operation) -> bool {
+        operation.mutates()
     }
 
     async fn install(&self, packages: &[PackageRequest], ctx: &OpContext) -> Result<()> {

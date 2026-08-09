@@ -1,5 +1,6 @@
 mod cli;
 mod commands;
+mod config;
 mod output;
 mod tui;
 
@@ -62,7 +63,7 @@ async fn main() -> anyhow::Result<()> {
 }
 
 /// Every backend crate is wired in through the `snowcone-backends` umbrella
-/// crate — one registration point, nowhere else.
+/// crate - one registration point, nowhere else.
 fn build_registry() -> Registry {
     let mut registry = Registry::new();
     snowcone_backends::register_all(&mut registry);

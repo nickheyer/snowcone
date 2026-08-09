@@ -4,7 +4,7 @@
 //! separates repo operations (`-S`, passed through to pacman) from AUR
 //! operations (`-A`). Unified operations therefore classify each package
 //! first: a `-Si` hit means repo, anything else is treated as AUR. aura
-//! escalates through sudo on its own — snowcone never elevates it, because
+//! escalates through sudo on its own - snowcone never elevates it, because
 //! makepkg refuses to run as root.
 
 use std::path::PathBuf;
@@ -12,7 +12,8 @@ use std::path::PathBuf;
 use async_trait::async_trait;
 use snowcone_core::{
     BackendFactory, Capabilities, Cmd, Detection, Elevator, Error, HostInfo, InstallState,
-    ManagerKind, OpContext, Package, PackageManager, PackageRequest, Result, find_program,
+    ManagerKind, OpContext, Operation, Package, PackageManager, PackageRequest, Result,
+    find_program,
 };
 
 const ID: &str = "aura";
@@ -139,6 +140,12 @@ impl PackageManager for Manager {
             | Capabilities::LIST_OUTDATED
     }
 
+    /// aura drives sudo itself for alpm mutations - snowcone never elevates
+    /// it, but a credential prompt is still coming.
+    fn needs_elevation(&self, operation: Operation) -> bool {
+        operation.mutates()
+    }
+
     async fn install(&self, packages: &[PackageRequest], ctx: &OpContext) -> Result<()> {
         reject_pins(packages)?;
         if ctx.dry_run {
@@ -243,7 +250,7 @@ impl PackageManager for Manager {
             return Err(self.no_dry_run("upgrade"));
         }
         if packages.is_empty() {
-            // Repo upgrade first, then the AUR pass — aura has no single
+            // Repo upgrade first, then the AUR pass - aura has no single
             // "upgrade everything" flag.
             let mut sync = self.cmd().arg("-Syu");
             let mut aur = self.cmd().arg("-Au");

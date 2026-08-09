@@ -79,7 +79,7 @@ pub fn managers(rows: &[ManagerStatus], as_json: bool) -> anyhow::Result<()> {
         return json(&rows);
     }
     if rows.is_empty() {
-        println!("no backends registered yet — backend crates are the next milestone");
+        println!("no backends registered yet - backend crates are the next milestone");
         return Ok(());
     }
     let id_width = column_width("ID", rows.iter().map(|r| r.id.as_str()));
@@ -99,7 +99,7 @@ pub fn managers(rows: &[ManagerStatus], as_json: bool) -> anyhow::Result<()> {
         let detail = if row.capabilities.is_empty() {
             row.detail.clone()
         } else {
-            format!("{} — {}", row.detail, row.capabilities.join(", "))
+            format!("{} - {}", row.detail, row.capabilities.join(", "))
         };
         let status = if row.primary {
             "primary"

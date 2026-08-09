@@ -1,7 +1,7 @@
 //! pipx backend for snowcone.
 //!
 //! pipx keeps each application in its own venv, and its CLI works on one
-//! package at a time — so batch operations loop rather than pass a list.
+//! package at a time - so batch operations loop rather than pass a list.
 //! Everything pipx knows about its installs comes from `pipx list --json`.
 //! No search (pipx installs from PyPI but cannot query it), no refresh, no
 //! outdated listing.

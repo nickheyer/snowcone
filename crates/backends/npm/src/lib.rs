@@ -252,7 +252,7 @@ fn parse_ls(json: &Value) -> Vec<NpmPackage> {
         .collect()
 }
 
-/// `npm view --json`: one registry document — except that some npm
+/// `npm view --json`: one registry document - except that some npm
 /// versions wrap it in an array, in which case the last (newest) entry
 /// wins. `license` is a string on modern packages and an object on ancient
 /// ones.

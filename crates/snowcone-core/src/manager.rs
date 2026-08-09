@@ -1,6 +1,6 @@
 //! The package manager interface.
 //!
-//! The four required operations are the universal subset — every manager in
+//! The four required operations are the universal subset - every manager in
 //! the README, down to `dpkg`, `rpm`, and Slackware's pkgtools, can perform
 //! them. The capability-gated operations default to
 //! [`Error::Unsupported`](crate::Error::Unsupported) so low-level backends
@@ -78,7 +78,7 @@ pub trait PackageManager: Send + Sync {
 
     /// Identifier of the package database/state this manager mutates
     /// (`"dpkg"`, `"alpm"`, `"python"`, …). Managers sharing a database are
-    /// grouped, and each operation is routed to one elected member — see
+    /// grouped, and each operation is routed to one elected member - see
     /// [`crate::election`].
     fn database_id(&self) -> &'static str;
 
@@ -88,9 +88,11 @@ pub trait PackageManager: Send + Sync {
         self.capabilities().contains(operation.capability())
     }
 
-    /// Whether this operation must run through an elevation helper on this
-    /// host (system managers say yes for mutations, user-scoped ones never
-    /// do).
+    /// Whether this operation will require elevated privileges when run -
+    /// either because snowcone prefixes the elevation helper (apt, dnf, …)
+    /// or because the tool escalates itself mid-run (AUR helpers calling
+    /// sudo). Callers use this to plan for a credential prompt, so it must
+    /// be true even when snowcone itself never elevates the process.
     fn needs_elevation(&self, operation: Operation) -> bool {
         let _ = operation;
         false

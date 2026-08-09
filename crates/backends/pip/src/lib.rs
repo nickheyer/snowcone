@@ -2,7 +2,7 @@
 //!
 //! Talks to whichever `pip`/`pip3` is on PATH and manages its
 //! site-packages. `pip search` died with PyPI's XML-RPC API, so SEARCH is
-//! not advertised. pip has no "upgrade everything" either — upgrade with no
+//! not advertised. pip has no "upgrade everything" either - upgrade with no
 //! arguments is composed from the outdated listing. On PEP 668
 //! externally-managed distros pip refuses to touch site-packages; that
 //! refusal is surfaced, never overridden.

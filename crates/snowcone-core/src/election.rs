@@ -9,7 +9,7 @@
 //! So every backend declares a [`database_id`](crate::PackageManager::database_id).
 //! Detected managers sharing a database form a [`DatabaseGroup`], and each
 //! operation is routed to the single highest-preference member that supports
-//! it. The preference order lives in [`PREFERENCE`] — one auditable table,
+//! it. The preference order lives in [`PREFERENCE`] - one auditable table,
 //! not a convention spread across backend crates. `--manager` bypasses
 //! election entirely by shrinking the group to the requested tools.
 

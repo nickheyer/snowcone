@@ -3,7 +3,7 @@
 //!
 //! Only `name` is truly universal, and a version is almost always known, so
 //! those anchor the trait. Everything else (description, homepage, license,
-//! sizes, dependencies, …) is common but not guaranteed — those accessors
+//! sizes, dependencies, …) is common but not guaranteed - those accessors
 //! default to `None` and backends override what their format actually
 //! carries.
 
@@ -90,7 +90,7 @@ pub trait Package: fmt::Debug + Send + Sync {
     }
 }
 
-/// Owned, serializable snapshot of any [`Package`] — what the CLI prints and
+/// Owned, serializable snapshot of any [`Package`] - what the CLI prints and
 /// the TUI renders.
 #[derive(Clone, Debug, Serialize)]
 pub struct PackageSummary {

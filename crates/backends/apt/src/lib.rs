@@ -1,6 +1,6 @@
 //! apt backend for snowcone.
 //!
-//! Drives the modern `apt` CLI (not `apt-get` — the listing and show verbs
+//! Drives the modern `apt` CLI (not `apt-get` - the listing and show verbs
 //! this backend parses are apt's own). Mutations run through the elevation
 //! helper; `-s` gives a faithful dry run. The "unstable CLI" warning apt
 //! prints on stderr is irrelevant here because parsing only reads stdout

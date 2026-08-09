@@ -2,7 +2,7 @@
 //!
 //! paru is a pacman-compatible AUR helper: repo and AUR packages live in the
 //! same alpm database and share the pacman flag vocabulary. paru escalates
-//! through sudo on its own — snowcone never elevates it, because makepkg
+//! through sudo on its own - snowcone never elevates it, because makepkg
 //! refuses to run as root.
 
 use std::path::PathBuf;
@@ -10,7 +10,8 @@ use std::path::PathBuf;
 use async_trait::async_trait;
 use snowcone_core::{
     BackendFactory, Capabilities, Cmd, Detection, Elevator, Error, HostInfo, InstallState,
-    ManagerKind, OpContext, Package, PackageManager, PackageRequest, Result, find_program,
+    ManagerKind, OpContext, Operation, Package, PackageManager, PackageRequest, Result,
+    find_program,
 };
 
 const ID: &str = "paru";
@@ -114,6 +115,11 @@ impl PackageManager for Manager {
             | Capabilities::REFRESH
             | Capabilities::UPGRADE
             | Capabilities::LIST_OUTDATED
+    }
+
+    /// paru drives sudo itself for alpm mutations
+    fn needs_elevation(&self, operation: Operation) -> bool {
+        operation.mutates()
     }
 
     async fn install(&self, packages: &[PackageRequest], ctx: &OpContext) -> Result<()> {

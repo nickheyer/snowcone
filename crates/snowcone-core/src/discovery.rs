@@ -2,7 +2,7 @@
 //!
 //! Every backend crate exposes a [`BackendFactory`]; the `snow` binary
 //! registers them all in a [`Registry`] at startup. Discovery probes the
-//! host (executables, os-release) with zero user configuration — a backend
+//! host (executables, os-release) with zero user configuration - a backend
 //! either detects itself or stays out of the way.
 
 use std::path::PathBuf;
