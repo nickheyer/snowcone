@@ -1,0 +1,33 @@
+# AUR publish on tag, copied from liber's release.yml aur job: render the
+# PKGBUILD template for the tag and push it to the AUR.
+name: AUR
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  aur:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - run: sed "s/@PKGVER@/${TAG#v}/g" aur/PKGBUILD > PKGBUILD
+        env:
+          TAG: ${{ github.ref_name }}
+      - uses: KSXGitHub/github-actions-deploy-aur@da03e160361ce01bf087e790b6ffd196d7dccff7 # v4.1.3
+        with:
+          pkgname: snowcone
+          pkgbuild: PKGBUILD
+          updpkgsums: true
+          commit_username: ${{ secrets.AUR_USERNAME }}
+          commit_email: ${{ secrets.AUR_EMAIL }}
+          ssh_private_key: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+          commit_message: ${{ github.ref_name }}

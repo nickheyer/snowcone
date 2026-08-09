@@ -1,4 +1,4 @@
-.PHONY: clean dev build test fmt format
+.PHONY: clean dev build test fmt format release
 
 clean:
 	cargo clean
@@ -16,3 +16,6 @@ fmt:
 	cargo fmt
 
 format: fmt
+
+release:
+	bash scripts/release/pushReleaseTag.sh $(RELEASE_FLAGS)
