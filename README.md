@@ -4,7 +4,7 @@ Very similar to mixing all the 7-11 slushee flavors together, but with linux pac
 ## Usage
 
 ```sh
-snow                        # open the TUI
+snow                        # open TUI
 snow install NAME[@VERSION] # install packages
 snow remove NAME            # remove packages
 snow upgrade [NAME…]        # upgrade packages, or everything when none given
@@ -15,7 +15,7 @@ snow refresh                # refresh package indexes
 snow managers               # show detected managers and capabilities
 ```
 
-Global flags: `-m MANAGER` to target specific backends, `--json` for machine output, `-y` to assume yes, `--dry-run` to preview.
+Global flags: `-m <your manager, ie: pacman>` to target specific backends, `--json` for machine output, `-y` to assume yes, `--dry-run` to preview.
 
 
 
