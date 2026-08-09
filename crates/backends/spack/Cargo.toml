@@ -1,0 +1,9 @@
+[package]
+name = "snowcone-spack"
+description = "Spack backend for snowcone (stub)."
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+async-trait.workspace = true
+snowcone-core.workspace = true

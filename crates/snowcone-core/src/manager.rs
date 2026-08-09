@@ -76,6 +76,12 @@ pub trait PackageManager: Send + Sync {
 
     fn kind(&self) -> ManagerKind;
 
+    /// Identifier of the package database/state this manager mutates
+    /// (`"dpkg"`, `"alpm"`, `"python"`, …). Managers sharing a database are
+    /// grouped, and each operation is routed to one elected member — see
+    /// [`crate::election`].
+    fn database_id(&self) -> &'static str;
+
     fn capabilities(&self) -> Capabilities;
 
     fn supports(&self, operation: Operation) -> bool {

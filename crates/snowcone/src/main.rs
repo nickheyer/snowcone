@@ -11,6 +11,12 @@ use crate::cli::{Cli, Command};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    // Rust ignores SIGPIPE by default, which turns `snow … | head` into a
+    // panic when the pipe closes. Restore the Unix default: exit quietly.
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+    }
+
     let cli = Cli::parse();
     let use_tui = matches!(&cli.command, None | Some(Command::Tui));
 
@@ -55,13 +61,10 @@ async fn main() -> anyhow::Result<()> {
     }
 }
 
-/// Every backend crate gets wired in here — nowhere else. Once the stub
-/// crates land this becomes e.g.:
-///
-/// ```ignore
-/// registry.register(snowcone_apt::factory());
-/// registry.register(snowcone_pacman::factory());
-/// ```
+/// Every backend crate is wired in through the `snowcone-backends` umbrella
+/// crate — one registration point, nowhere else.
 fn build_registry() -> Registry {
-    Registry::new()
+    let mut registry = Registry::new();
+    snowcone_backends::register_all(&mut registry);
+    registry
 }

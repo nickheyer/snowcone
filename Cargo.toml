@@ -1,6 +1,11 @@
 [workspace]
 resolver = "3"
-members = ["crates/snowcone-core", "crates/snowcone"]
+members = [
+    "crates/snowcone-core",
+    "crates/snowcone",
+    "crates/snowcone-backends",
+    "crates/backends/*",
+]
 
 [workspace.package]
 version = "0.1.0"
@@ -8,6 +13,7 @@ edition = "2024"
 
 [workspace.dependencies]
 snowcone-core = { path = "crates/snowcone-core" }
+snowcone-backends = { path = "crates/snowcone-backends" }
 
 anyhow = "1"
 async-trait = "0.1"

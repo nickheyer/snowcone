@@ -10,9 +10,11 @@ path = "src/main.rs"
 
 [dependencies]
 snowcone-core.workspace = true
+snowcone-backends.workspace = true
 
 anyhow.workspace = true
 clap.workspace = true
+libc.workspace = true
 crossterm.workspace = true
 ratatui.workspace = true
 serde.workspace = true

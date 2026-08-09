@@ -73,17 +73,23 @@ fn draw_search(frame: &mut Frame, app: &App, area: Rect) {
 fn draw_managers(frame: &mut Frame, app: &mut App, area: Rect) {
     let focused = app.focus == Focus::Managers;
     let block = Block::bordered()
-        .title(format!("Managers ({})", app.manager_rows.len()))
+        .title(format!(
+            "Managers ({}/{})",
+            app.manager_rows.len(),
+            app.registered_total
+        ))
         .border_style(border_style(focused));
 
     if app.manager_rows.is_empty() {
-        let paragraph = Paragraph::new(
-            "No backends registered yet.\n\nDiscovery, the interfaces, and this UI are wired; \
-             backend crates are the next milestone.",
-        )
-        .style(Style::new().fg(Color::DarkGray))
-        .wrap(Wrap { trim: true })
-        .block(block);
+        let text = if app.registered_total == 0 {
+            "No backends registered yet."
+        } else {
+            "No package managers detected on this host."
+        };
+        let paragraph = Paragraph::new(text)
+            .style(Style::new().fg(Color::DarkGray))
+            .wrap(Wrap { trim: true })
+            .block(block);
         frame.render_widget(paragraph, area);
         return;
     }
@@ -92,20 +98,17 @@ fn draw_managers(frame: &mut Frame, app: &mut App, area: Rect) {
         .manager_rows
         .iter()
         .map(|row| {
-            let (dot, dot_style) = if row.available {
-                ("● ", Style::new().fg(Color::Green))
-            } else {
-                ("○ ", Style::new().fg(Color::DarkGray))
-            };
-            let mut spans = vec![Span::styled(dot, dot_style), Span::from(row.id.clone()).bold()];
-            if let Some(kind) = &row.kind {
-                spans.push(Span::from(format!("  {kind}")).fg(Color::DarkGray));
+            let mut spans = vec![
+                Span::styled("● ", Style::new().fg(Color::Green)),
+                Span::from(row.id.clone()).bold(),
+            ];
+            if row.primary {
+                spans.push(Span::from(" ★").fg(Color::Yellow));
             }
-            let mut item = ListItem::new(Line::from(spans));
-            if !row.available {
-                item = item.style(Style::new().add_modifier(Modifier::DIM));
+            if let (Some(kind), Some(database)) = (&row.kind, &row.database) {
+                spans.push(Span::from(format!("  {kind} · {database}")).fg(Color::DarkGray));
             }
-            item
+            ListItem::new(Line::from(spans))
         })
         .collect();
 
@@ -194,7 +197,8 @@ fn detail_lines(package: &PackageSummary) -> Vec<Line<'_>> {
 }
 
 fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
-    let mut spans = vec![Span::from(" q quit · / search · Tab focus · ↑/↓ move ").fg(Color::DarkGray)];
+    let mut spans =
+        vec![Span::from(" q quit · / search · Tab focus · ↑/↓ move ").fg(Color::DarkGray)];
     let status = app.status_line();
     if !status.is_empty() {
         spans.push(Span::from("· ").fg(Color::DarkGray));

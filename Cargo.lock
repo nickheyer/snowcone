@@ -672,13 +672,291 @@ dependencies = [
  "anyhow",
  "clap",
  "crossterm",
+ "libc",
  "ratatui",
  "serde",
  "serde_json",
+ "snowcone-backends",
  "snowcone-core",
  "tokio",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "snowcone-apk"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-appimage"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-apt"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-apt-rpm"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-aptitude"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-apx"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-aura"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-backends"
+version = "0.1.0"
+dependencies = [
+ "snowcone-apk",
+ "snowcone-appimage",
+ "snowcone-apt",
+ "snowcone-apt-rpm",
+ "snowcone-aptitude",
+ "snowcone-apx",
+ "snowcone-aura",
+ "snowcone-bauh",
+ "snowcone-brew",
+ "snowcone-bun",
+ "snowcone-bundler",
+ "snowcone-cabal",
+ "snowcone-cargo",
+ "snowcone-cargo-binstall",
+ "snowcone-cave",
+ "snowcone-clojure",
+ "snowcone-composer",
+ "snowcone-conan",
+ "snowcone-conda",
+ "snowcone-core",
+ "snowcone-coursier",
+ "snowcone-cpan",
+ "snowcone-cpanm",
+ "snowcone-cpm",
+ "snowcone-deno",
+ "snowcone-dnf",
+ "snowcone-dotnet",
+ "snowcone-dpkg",
+ "snowcone-dub",
+ "snowcone-easybuild",
+ "snowcone-eepm",
+ "snowcone-emerge",
+ "snowcone-eopkg",
+ "snowcone-flatpak",
+ "snowcone-fpm",
+ "snowcone-gem",
+ "snowcone-go",
+ "snowcone-gobo",
+ "snowcone-gradle",
+ "snowcone-guix",
+ "snowcone-hatch",
+ "snowcone-haxelib",
+ "snowcone-helm",
+ "snowcone-ivy",
+ "snowcone-julia",
+ "snowcone-kiss",
+ "snowcone-leiningen",
+ "snowcone-luarocks",
+ "snowcone-luet",
+ "snowcone-lunar",
+ "snowcone-makedeb",
+ "snowcone-mamba",
+ "snowcone-maven",
+ "snowcone-mix",
+ "snowcone-mpm",
+ "snowcone-nala",
+ "snowcone-netpkg",
+ "snowcone-nimble",
+ "snowcone-nix",
+ "snowcone-npm",
+ "snowcone-opam",
+ "snowcone-opkg",
+ "snowcone-packagekit",
+ "snowcone-pacman",
+ "snowcone-pacstall",
+ "snowcone-paket",
+ "snowcone-pamac",
+ "snowcone-paru",
+ "snowcone-pdm",
+ "snowcone-pear",
+ "snowcone-petget",
+ "snowcone-pikaur",
+ "snowcone-pip",
+ "snowcone-pipx",
+ "snowcone-pisi",
+ "snowcone-pixi",
+ "snowcone-pkgsrc",
+ "snowcone-pkgtools",
+ "snowcone-pnpm",
+ "snowcone-poetry",
+ "snowcone-prt-get",
+ "snowcone-pub",
+ "snowcone-quicklisp",
+ "snowcone-r",
+ "snowcone-raco",
+ "snowcone-rebar3",
+ "snowcone-rpm",
+ "snowcone-rpm-ostree",
+ "snowcone-sbopkg",
+ "snowcone-sbt",
+ "snowcone-scratchpkg",
+ "snowcone-shards",
+ "snowcone-slackpkg",
+ "snowcone-slapt-get",
+ "snowcone-slpkg",
+ "snowcone-snap",
+ "snowcone-sorcery",
+ "snowcone-spack",
+ "snowcone-stack",
+ "snowcone-stow",
+ "snowcone-swiftpm",
+ "snowcone-swupd",
+ "snowcone-tce-load",
+ "snowcone-tlmgr",
+ "snowcone-transactional-update",
+ "snowcone-trizen",
+ "snowcone-urpmi",
+ "snowcone-uv",
+ "snowcone-vcpkg",
+ "snowcone-vpm",
+ "snowcone-xbps",
+ "snowcone-xmake",
+ "snowcone-yarn",
+ "snowcone-yay",
+ "snowcone-yum",
+ "snowcone-zeroinstall",
+ "snowcone-zig",
+ "snowcone-zypper",
+]
+
+[[package]]
+name = "snowcone-bauh"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-brew"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-bun"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-bundler"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-cabal"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-cargo"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-cargo-binstall"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-cave"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-clojure"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-composer"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-conan"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-conda"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
 ]
 
 [[package]]
@@ -693,6 +971,790 @@ dependencies = [
  "tokio",
  "tracing",
  "which",
+]
+
+[[package]]
+name = "snowcone-coursier"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-cpan"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-cpanm"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-cpm"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-deno"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-dnf"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-dotnet"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-dpkg"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-dub"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-easybuild"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-eepm"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-emerge"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-eopkg"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-flatpak"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-fpm"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-gem"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-go"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-gobo"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-gradle"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-guix"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-hatch"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-haxelib"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-helm"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-ivy"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-julia"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-kiss"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-leiningen"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-luarocks"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-luet"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-lunar"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-makedeb"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-mamba"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-maven"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-mix"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-mpm"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-nala"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-netpkg"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-nimble"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-nix"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-npm"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-opam"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-opkg"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-packagekit"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-pacman"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-pacstall"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-paket"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-pamac"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-paru"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-pdm"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-pear"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-petget"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-pikaur"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-pip"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-pipx"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-pisi"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-pixi"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-pkgsrc"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-pkgtools"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-pnpm"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-poetry"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-prt-get"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-pub"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-quicklisp"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-r"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-raco"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-rebar3"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-rpm"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-rpm-ostree"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-sbopkg"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-sbt"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-scratchpkg"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-shards"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-slackpkg"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-slapt-get"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-slpkg"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-snap"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-sorcery"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-spack"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-stack"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-stow"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-swiftpm"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-swupd"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-tce-load"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-tlmgr"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-transactional-update"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-trizen"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-urpmi"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-uv"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-vcpkg"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-vpm"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-xbps"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-xmake"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-yarn"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-yay"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-yum"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-zeroinstall"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-zig"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
+]
+
+[[package]]
+name = "snowcone-zypper"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "snowcone-core",
 ]
 
 [[package]]

@@ -1,10 +1,13 @@
-//! CLI command dispatch: pick backends, fan operations out, aggregate.
+//! CLI command dispatch: discover backends, group them by package database,
+//! elect one member per operation, and aggregate results.
+
+use std::collections::HashMap;
 
 use anyhow::bail;
 use serde::Serialize;
 use snowcone_core::{
-    Detection, Error, HostInfo, OpContext, Operation, PackageManager, PackageRequest,
-    PackageSummary, Registry,
+    DatabaseGroup, Detection, Error, HostInfo, OpContext, Operation, PackageManager,
+    PackageRequest, PackageSummary, Registry, group_by_database,
 };
 
 use crate::output;
@@ -16,52 +19,72 @@ pub struct ManagerStatus {
     pub id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub kind: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub database: Option<String>,
     pub available: bool,
+    /// Highest-preference member of its database group.
+    pub primary: bool,
     /// Executable path when available, otherwise the reason it is not.
     pub detail: String,
     pub capabilities: Vec<String>,
 }
 
-/// Probe all registered backends, returning display rows plus the usable
-/// manager instances.
+/// Probe all registered backends, returning display rows (available ones
+/// first, in group order) plus the grouped manager instances.
 pub fn manager_statuses(
     registry: &Registry,
     host: &HostInfo,
-) -> (Vec<ManagerStatus>, Vec<Box<dyn PackageManager>>) {
-    let mut rows = Vec::new();
+) -> (Vec<ManagerStatus>, Vec<DatabaseGroup>) {
+    let mut unavailable = Vec::new();
     let mut managers = Vec::new();
+    let mut programs: HashMap<String, String> = HashMap::new();
     for probe in registry.probe(host) {
         let id = probe.factory.id().to_string();
         match probe.detection {
             Detection::Available { program } => match probe.factory.create(host) {
                 Ok(manager) => {
-                    rows.push(ManagerStatus {
-                        id,
-                        kind: Some(manager.kind().to_string()),
-                        available: true,
-                        detail: program.display().to_string(),
-                        capabilities: manager.capabilities().names(),
-                    });
+                    programs.insert(id, program.display().to_string());
                     managers.push(manager);
                 }
-                Err(error) => rows.push(ManagerStatus {
+                Err(error) => unavailable.push(ManagerStatus {
                     id,
                     kind: None,
+                    database: None,
                     available: false,
+                    primary: false,
                     detail: format!("failed to initialize: {error}"),
                     capabilities: Vec::new(),
                 }),
             },
-            Detection::Unavailable { reason } => rows.push(ManagerStatus {
+            Detection::Unavailable { reason } => unavailable.push(ManagerStatus {
                 id,
                 kind: None,
+                database: None,
                 available: false,
+                primary: false,
                 detail: reason,
                 capabilities: Vec::new(),
             }),
         }
     }
-    (rows, managers)
+    let groups = group_by_database(managers);
+    let mut rows = Vec::new();
+    for group in &groups {
+        for (index, manager) in group.managers.iter().enumerate() {
+            rows.push(ManagerStatus {
+                id: manager.id().to_string(),
+                kind: Some(manager.kind().to_string()),
+                database: Some(group.database.to_string()),
+                available: true,
+                primary: index == 0,
+                detail: programs.get(manager.id()).cloned().unwrap_or_default(),
+                capabilities: manager.capabilities().names(),
+            });
+        }
+    }
+    unavailable.sort_by(|a, b| a.id.cmp(&b.id));
+    rows.extend(unavailable);
+    (rows, groups)
 }
 
 pub struct Runner {
@@ -74,88 +97,96 @@ pub struct Runner {
 }
 
 impl Runner {
-    /// The backends this invocation may touch.
-    fn selected(&self) -> anyhow::Result<Vec<Box<dyn PackageManager>>> {
-        if self.filter.is_empty() {
-            return Ok(self.registry.discover(&self.host));
-        }
-        let mut managers = Vec::new();
-        for id in &self.filter {
-            let Some(factory) = self
-                .registry
-                .factories()
-                .iter()
-                .find(|factory| factory.id() == id)
-            else {
-                let known: Vec<_> = self
+    /// Detected managers this invocation may touch, grouped by database.
+    /// A `--manager` filter shrinks the pool before grouping, so an
+    /// explicitly requested tool becomes its group's primary.
+    fn groups(&self) -> anyhow::Result<Vec<DatabaseGroup>> {
+        let managers = if self.filter.is_empty() {
+            self.registry.discover(&self.host)
+        } else {
+            let mut managers: Vec<Box<dyn PackageManager>> = Vec::new();
+            for id in &self.filter {
+                let Some(factory) = self
                     .registry
                     .factories()
                     .iter()
-                    .map(|factory| factory.id())
-                    .collect();
-                bail!(
-                    "unknown backend `{id}` (registered: {})",
-                    if known.is_empty() {
-                        "none yet".to_string()
-                    } else {
-                        known.join(", ")
+                    .find(|factory| factory.id() == id)
+                else {
+                    bail!("unknown backend `{id}` (see `snow managers` for the full list)");
+                };
+                match factory.detect(&self.host) {
+                    Detection::Available { .. } => managers.push(factory.create(&self.host)?),
+                    Detection::Unavailable { reason } => {
+                        bail!("backend `{id}` is not available on this host: {reason}")
                     }
-                );
-            };
-            match factory.detect(&self.host) {
-                Detection::Available { .. } => managers.push(factory.create(&self.host)?),
-                Detection::Unavailable { reason } => {
-                    bail!("backend `{id}` is not available on this host: {reason}")
                 }
             }
-        }
-        Ok(managers)
-    }
-
-    /// Selected backends that support `operation`. Silently skips
-    /// non-supporting backends unless they were requested by name.
-    fn supporting(&self, operation: Operation) -> anyhow::Result<Vec<Box<dyn PackageManager>>> {
-        let selected = self.selected()?;
-        if selected.is_empty() {
+            managers
+        };
+        if managers.is_empty() {
             bail!(
                 "no package manager backends detected ({} registered)",
                 self.registry.factories().len()
             );
         }
-        let explicit = !self.filter.is_empty();
-        let mut managers = Vec::new();
-        for manager in selected {
-            if manager.supports(operation) {
-                managers.push(manager);
-            } else if explicit {
-                bail!("`{}` does not support {operation}", manager.id());
-            } else {
-                tracing::debug!(manager = manager.id(), %operation, "skipping unsupported backend");
-            }
-        }
-        if managers.is_empty() {
-            bail!("no detected backend supports {operation}");
-        }
-        Ok(managers)
+        Ok(group_by_database(managers))
     }
 
-    /// Mutating operations act through exactly one backend; make the user
-    /// pick when the target is ambiguous.
-    fn one_target(&self, operation: Operation) -> anyhow::Result<Box<dyn PackageManager>> {
-        let mut managers = self.supporting(operation)?;
-        if managers.len() > 1 {
-            let ids: Vec<_> = managers.iter().map(|manager| manager.id()).collect();
+    /// One elected manager per database group that can perform `operation`.
+    /// Groups with no capable member are skipped, unless the user asked for
+    /// their tools by name.
+    fn elect<'a>(
+        &self,
+        groups: &'a [DatabaseGroup],
+        operation: Operation,
+    ) -> anyhow::Result<Vec<&'a dyn PackageManager>> {
+        let explicit = !self.filter.is_empty();
+        let mut elected = Vec::new();
+        for group in groups {
+            match group.elect(operation) {
+                Some(manager) => elected.push(manager),
+                None if explicit => {
+                    let ids: Vec<_> = group.managers.iter().map(|m| m.id()).collect();
+                    bail!("{} does not support {operation}", ids.join(", "));
+                }
+                None => tracing::debug!(
+                    database = group.database,
+                    %operation,
+                    "no member supports operation; skipping database",
+                ),
+            }
+        }
+        if elected.is_empty() {
+            bail!("no detected backend supports {operation}");
+        }
+        Ok(elected)
+    }
+
+    /// Mutating operations touch exactly one database; make the user pick
+    /// when several could satisfy the request.
+    fn one<'a>(
+        &self,
+        groups: &'a [DatabaseGroup],
+        operation: Operation,
+    ) -> anyhow::Result<&'a dyn PackageManager> {
+        let elected = self.elect(groups, operation)?;
+        if elected.len() > 1 {
+            let targets: Vec<String> = elected
+                .iter()
+                .map(|manager| format!("{} [{}]", manager.id(), manager.database_id()))
+                .collect();
             bail!(
-                "multiple backends can {operation} ({}); pick one with --manager",
-                ids.join(", ")
+                "multiple package databases could handle {operation} ({}); pick one with --manager",
+                targets.join(", ")
             );
         }
-        Ok(managers.remove(0))
+        Ok(elected[0])
     }
 
     pub async fn search(&self, query: &str) -> anyhow::Result<()> {
+        let groups = self.groups()?;
         let mut results = Vec::new();
-        for manager in self.supporting(Operation::Search)? {
+        for manager in self.elect(&groups, Operation::Search)? {
             match manager.search(query).await {
                 Ok(packages) => results.extend(
                     packages
@@ -172,8 +203,9 @@ impl Runner {
     }
 
     pub async fn info(&self, name: &str) -> anyhow::Result<()> {
+        let groups = self.groups()?;
         let mut found = Vec::new();
-        for manager in self.supporting(Operation::Info)? {
+        for manager in self.elect(&groups, Operation::Info)? {
             match manager.info(name).await {
                 Ok(package) => found.push(PackageSummary::new(package.as_ref())),
                 Err(Error::NotFound(_)) => {}
@@ -201,8 +233,9 @@ impl Runner {
         } else {
             Operation::ListInstalled
         };
+        let groups = self.groups()?;
         let mut results = Vec::new();
-        for manager in self.supporting(operation)? {
+        for manager in self.elect(&groups, operation)? {
             let listed = if outdated {
                 manager.list_outdated().await
             } else {
@@ -224,10 +257,11 @@ impl Runner {
     }
 
     pub async fn refresh(&self) -> anyhow::Result<()> {
+        let groups = self.groups()?;
         let mut failures = Vec::new();
-        for manager in self.supporting(Operation::Refresh)? {
+        for manager in self.elect(&groups, Operation::Refresh)? {
             match manager.refresh(&self.op_ctx).await {
-                Ok(()) => println!("refreshed {}", manager.id()),
+                Ok(()) => println!("refreshed {} [{}]", manager.id(), manager.database_id()),
                 Err(error) => {
                     eprintln!("refresh failed for {}: {error}", manager.id());
                     failures.push(manager.id());
@@ -242,25 +276,29 @@ impl Runner {
 
     pub async fn install(&self, specs: &[String]) -> anyhow::Result<()> {
         let requests = parse_requests(specs);
-        let manager = self.one_target(Operation::Install)?;
+        let groups = self.groups()?;
+        let manager = self.one(&groups, Operation::Install)?;
         manager.install(&requests, &self.op_ctx).await?;
         Ok(())
     }
 
     pub async fn remove(&self, specs: &[String]) -> anyhow::Result<()> {
         let requests = parse_requests(specs);
-        let manager = self.one_target(Operation::Remove)?;
+        let groups = self.groups()?;
+        let manager = self.one(&groups, Operation::Remove)?;
         manager.remove(&requests, &self.op_ctx).await?;
         Ok(())
     }
 
     pub async fn upgrade(&self, specs: &[String]) -> anyhow::Result<()> {
+        let groups = self.groups()?;
         if specs.is_empty() {
-            // `snow upgrade` upgrades everything, everywhere.
+            // `snow upgrade` upgrades everything: each database once,
+            // through its elected manager.
             let mut failures = Vec::new();
-            for manager in self.supporting(Operation::Upgrade)? {
+            for manager in self.elect(&groups, Operation::Upgrade)? {
                 match manager.upgrade(&[], &self.op_ctx).await {
-                    Ok(()) => println!("upgraded {}", manager.id()),
+                    Ok(()) => println!("upgraded {} [{}]", manager.id(), manager.database_id()),
                     Err(error) => {
                         eprintln!("upgrade failed for {}: {error}", manager.id());
                         failures.push(manager.id());
@@ -273,7 +311,7 @@ impl Runner {
             return Ok(());
         }
         let requests = parse_requests(specs);
-        let manager = self.one_target(Operation::Upgrade)?;
+        let manager = self.one(&groups, Operation::Upgrade)?;
         manager.upgrade(&requests, &self.op_ctx).await?;
         Ok(())
     }
@@ -285,5 +323,8 @@ impl Runner {
 }
 
 fn parse_requests(specs: &[String]) -> Vec<PackageRequest> {
-    specs.iter().map(|spec| PackageRequest::parse(spec)).collect()
+    specs
+        .iter()
+        .map(|spec| PackageRequest::parse(spec))
+        .collect()
 }

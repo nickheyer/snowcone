@@ -6,7 +6,7 @@ use std::time::Duration;
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::DefaultTerminal;
 use ratatui::widgets::{ListState, TableState};
-use snowcone_core::{HostInfo, Operation, PackageManager, PackageSummary, Registry};
+use snowcone_core::{DatabaseGroup, HostInfo, Operation, PackageSummary, Registry};
 use tokio::sync::mpsc;
 
 use crate::commands::{ManagerStatus, manager_statuses};
@@ -30,9 +30,15 @@ pub enum TuiMsg {
 }
 
 pub async fn run(host: HostInfo, registry: Registry) -> anyhow::Result<()> {
-    let (rows, managers) = manager_statuses(&registry, &host);
+    let registered_total = registry.factories().len();
+    let (rows, groups) = manager_statuses(&registry, &host);
+    // The sidebar only shows what's actually on this host; `snow managers`
+    // lists the rest.
+    let available: Vec<ManagerStatus> = rows.into_iter().filter(|row| row.available).collect();
     let mut terminal = ratatui::init();
-    let result = App::new(host, rows, managers).main_loop(&mut terminal).await;
+    let result = App::new(host, available, registered_total, groups)
+        .main_loop(&mut terminal)
+        .await;
     ratatui::restore();
     result
 }
@@ -40,7 +46,8 @@ pub async fn run(host: HostInfo, registry: Registry) -> anyhow::Result<()> {
 pub struct App {
     pub host: HostInfo,
     pub manager_rows: Vec<ManagerStatus>,
-    pub managers: Arc<Vec<Box<dyn PackageManager>>>,
+    pub registered_total: usize,
+    pub groups: Arc<Vec<DatabaseGroup>>,
     pub focus: Focus,
     pub search_input: String,
     pub searching: bool,
@@ -57,7 +64,8 @@ impl App {
     fn new(
         host: HostInfo,
         manager_rows: Vec<ManagerStatus>,
-        managers: Vec<Box<dyn PackageManager>>,
+        registered_total: usize,
+        groups: Vec<DatabaseGroup>,
     ) -> Self {
         let (msg_tx, msg_rx) = mpsc::unbounded_channel();
         let mut manager_list = ListState::default();
@@ -67,7 +75,8 @@ impl App {
         Self {
             host,
             manager_rows,
-            managers: Arc::new(managers),
+            registered_total,
+            groups: Arc::new(groups),
             focus: Focus::Search,
             search_input: String::new(),
             searching: false,
@@ -167,19 +176,20 @@ impl App {
         if query.is_empty() || self.searching {
             return;
         }
-        if self.managers.is_empty() {
+        if self.groups.is_empty() {
             self.push_log("no backends available — nothing to search".to_string());
             return;
         }
         self.searching = true;
-        let managers = Arc::clone(&self.managers);
+        let groups = Arc::clone(&self.groups);
         let tx = self.msg_tx.clone();
         tokio::spawn(async move {
             let mut all = Vec::new();
-            for manager in managers.iter() {
-                if !manager.supports(Operation::Search) {
+            for group in groups.iter() {
+                // One query per database: its elected search-capable member.
+                let Some(manager) = group.elect(Operation::Search) else {
                     continue;
-                }
+                };
                 match manager.search(&query).await {
                     Ok(packages) => all.extend(
                         packages
@@ -195,7 +205,10 @@ impl App {
                 }
             }
             all.sort_by(|a, b| a.name.cmp(&b.name).then(a.manager.cmp(&b.manager)));
-            let _ = tx.send(TuiMsg::Results { query, packages: all });
+            let _ = tx.send(TuiMsg::Results {
+                query,
+                packages: all,
+            });
         });
     }
 
@@ -205,8 +218,11 @@ impl App {
                 self.searching = false;
                 self.push_log(format!("{} result(s) for '{query}'", packages.len()));
                 self.packages = packages;
-                self.package_table
-                    .select(if self.packages.is_empty() { None } else { Some(0) });
+                self.package_table.select(if self.packages.is_empty() {
+                    None
+                } else {
+                    Some(0)
+                });
                 self.focus = Focus::Packages;
             }
             TuiMsg::Log(line) => self.push_log(line),

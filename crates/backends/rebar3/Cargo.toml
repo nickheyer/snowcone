@@ -1,0 +1,9 @@
+[package]
+name = "snowcone-rebar3"
+description = "rebar3 backend for snowcone (stub)."
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+async-trait.workspace = true
+snowcone-core.workspace = true

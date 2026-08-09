@@ -6,7 +6,10 @@ pub enum Error {
     /// The backend does not implement this operation (see
     /// [`Capabilities`](crate::Capabilities)).
     #[error("`{manager}` does not support {operation}")]
-    Unsupported { manager: String, operation: Operation },
+    Unsupported {
+        manager: String,
+        operation: Operation,
+    },
 
     /// A backend was requested by id but is not present on this host.
     #[error("backend `{0}` is not available on this host")]

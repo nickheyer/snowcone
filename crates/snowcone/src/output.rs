@@ -83,19 +83,36 @@ pub fn managers(rows: &[ManagerStatus], as_json: bool) -> anyhow::Result<()> {
         return Ok(());
     }
     let id_width = column_width("ID", rows.iter().map(|r| r.id.as_str()));
-    let kind_width = column_width("KIND", rows.iter().map(|r| r.kind.as_deref().unwrap_or("-")));
-    println!("{:id_width$}  {:kind_width$}  {:11}  DETAIL", "ID", "KIND", "STATUS");
+    let kind_width = column_width(
+        "KIND",
+        rows.iter().map(|r| r.kind.as_deref().unwrap_or("-")),
+    );
+    let db_width = column_width(
+        "DATABASE",
+        rows.iter().map(|r| r.database.as_deref().unwrap_or("-")),
+    );
+    println!(
+        "{:id_width$}  {:kind_width$}  {:db_width$}  {:11}  DETAIL",
+        "ID", "KIND", "DATABASE", "STATUS"
+    );
     for row in rows {
         let detail = if row.capabilities.is_empty() {
             row.detail.clone()
         } else {
             format!("{} — {}", row.detail, row.capabilities.join(", "))
         };
+        let status = if row.primary {
+            "primary"
+        } else if row.available {
+            "available"
+        } else {
+            "unavailable"
+        };
         println!(
-            "{:id_width$}  {:kind_width$}  {:11}  {detail}",
+            "{:id_width$}  {:kind_width$}  {:db_width$}  {status:11}  {detail}",
             row.id,
             row.kind.as_deref().unwrap_or("-"),
-            if row.available { "available" } else { "unavailable" },
+            row.database.as_deref().unwrap_or("-"),
         );
     }
     Ok(())

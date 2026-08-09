@@ -1,0 +1,9 @@
+[package]
+name = "snowcone-yay"
+description = "yay backend for snowcone (stub)."
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+async-trait.workspace = true
+snowcone-core.workspace = true

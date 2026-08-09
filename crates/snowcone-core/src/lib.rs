@@ -10,6 +10,7 @@
 
 pub mod capability;
 pub mod discovery;
+pub mod election;
 pub mod error;
 pub mod exec;
 pub mod host;
@@ -19,6 +20,7 @@ pub mod progress;
 
 pub use capability::{Capabilities, Operation};
 pub use discovery::{BackendFactory, Detection, Probe, Registry};
+pub use election::{DatabaseGroup, PREFERENCE, group_by_database};
 pub use error::{Error, Result};
 pub use exec::{Cmd, CmdOutput, Elevator};
 pub use host::{HostInfo, OsRelease, find_program};
