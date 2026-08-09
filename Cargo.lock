@@ -692,7 +692,7 @@ checksum = "8ed6a63f02c8539c91a8685a86f4099661ba3da017932f6ebbea6de3f0fa7c90"
 
 [[package]]
 name = "snowcone"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -712,7 +712,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-apk"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -720,7 +720,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-appimage"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -728,7 +728,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-apt"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -736,7 +736,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-apt-rpm"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -744,7 +744,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-aptitude"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -752,7 +752,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-apx"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -760,7 +760,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-aura"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -768,7 +768,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-backends"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "snowcone-apk",
  "snowcone-appimage",
@@ -892,7 +892,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-bauh"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -900,7 +900,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-brew"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "serde_json",
@@ -909,7 +909,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-bun"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -917,7 +917,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-bundler"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -925,7 +925,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-cabal"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -933,7 +933,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-cargo"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -941,7 +941,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-cargo-binstall"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -949,7 +949,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-cave"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -957,7 +957,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-clojure"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -965,7 +965,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-composer"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -973,7 +973,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-conan"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -981,7 +981,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-conda"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -989,7 +989,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-core"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "bitflags",
@@ -1003,7 +1003,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-coursier"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1011,7 +1011,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-cpan"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1019,7 +1019,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-cpanm"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1027,7 +1027,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-cpm"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1035,7 +1035,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-deno"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1043,7 +1043,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-dnf"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1051,7 +1051,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-dotnet"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1059,7 +1059,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-dpkg"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1067,7 +1067,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-dub"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1075,7 +1075,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-easybuild"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1083,7 +1083,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-eepm"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1091,7 +1091,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-emerge"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1099,7 +1099,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-eopkg"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1107,7 +1107,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-flatpak"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1115,7 +1115,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-fpm"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1123,7 +1123,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-gem"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1131,7 +1131,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-go"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1139,7 +1139,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-gobo"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1147,7 +1147,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-gradle"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1155,7 +1155,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-guix"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1163,7 +1163,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-hatch"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1171,7 +1171,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-haxelib"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1179,7 +1179,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-helm"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1187,7 +1187,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-ivy"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1195,7 +1195,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-julia"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1203,7 +1203,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-kiss"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1211,7 +1211,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-leiningen"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1219,7 +1219,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-luarocks"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1227,7 +1227,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-luet"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1235,7 +1235,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-lunar"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1243,7 +1243,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-makedeb"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1251,7 +1251,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-mamba"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1259,7 +1259,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-maven"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1267,7 +1267,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-mix"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1275,7 +1275,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-mpm"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1283,7 +1283,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-nala"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1291,7 +1291,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-netpkg"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1299,7 +1299,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-nimble"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1307,7 +1307,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-nix"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "serde_json",
@@ -1316,7 +1316,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-npm"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "serde_json",
@@ -1325,7 +1325,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-opam"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1333,7 +1333,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-opkg"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1341,7 +1341,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-packagekit"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1349,7 +1349,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-pacman"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1357,7 +1357,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-pacstall"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1365,7 +1365,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-paket"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1373,7 +1373,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-pamac"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1381,7 +1381,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-paru"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1389,7 +1389,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-pdm"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1397,7 +1397,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-pear"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1405,7 +1405,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-petget"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1413,7 +1413,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-pikaur"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1421,7 +1421,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-pip"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "serde_json",
@@ -1430,7 +1430,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-pipx"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "serde_json",
@@ -1439,7 +1439,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-pisi"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1447,7 +1447,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-pixi"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1455,7 +1455,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-pkgsrc"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1463,7 +1463,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-pkgtools"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1471,7 +1471,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-pnpm"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1479,7 +1479,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-poetry"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1487,7 +1487,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-prt-get"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1495,7 +1495,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-pub"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1503,7 +1503,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-quicklisp"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1511,7 +1511,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-r"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1519,7 +1519,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-raco"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1527,7 +1527,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-rebar3"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1535,7 +1535,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-rpm"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1543,7 +1543,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-rpm-ostree"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1551,7 +1551,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-sbopkg"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1559,7 +1559,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-sbt"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1567,7 +1567,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-scratchpkg"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1575,7 +1575,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-shards"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1583,7 +1583,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-slackpkg"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1591,7 +1591,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-slapt-get"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1599,7 +1599,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-slpkg"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1607,7 +1607,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-snap"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1615,7 +1615,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-sorcery"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1623,7 +1623,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-spack"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1631,7 +1631,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-stack"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1639,7 +1639,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-stow"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1647,7 +1647,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-swiftpm"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1655,7 +1655,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-swupd"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1663,7 +1663,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-tce-load"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1671,7 +1671,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-tlmgr"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1679,7 +1679,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-transactional-update"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1687,7 +1687,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-trizen"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1695,7 +1695,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-urpmi"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1703,7 +1703,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-uv"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1711,7 +1711,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-vcpkg"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1719,7 +1719,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-vpm"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1727,7 +1727,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-xbps"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1735,7 +1735,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-xmake"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1743,7 +1743,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-yarn"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1751,7 +1751,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-yay"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1759,7 +1759,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-yum"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1767,7 +1767,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-zeroinstall"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1775,7 +1775,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-zig"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
@@ -1783,7 +1783,7 @@ dependencies = [
 
 [[package]]
 name = "snowcone-zypper"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "async-trait",
  "snowcone-core",
