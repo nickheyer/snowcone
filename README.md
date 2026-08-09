@@ -1,6 +1,20 @@
 # snowcone
 Very similar to mixing all the 7-11 slushee flavors together, but with linux package managers.
 
+## Install
+
+With cargo:
+
+```sh
+cargo install --git https://github.com/nickheyer/snowcone snowcone
+```
+
+On Arch:
+
+```sh
+yay -S snowcone
+```
+
 ## Usage
 
 ```sh

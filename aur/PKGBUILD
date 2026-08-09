@@ -6,7 +6,7 @@ pkgrel=1
 pkgdesc="One package manager to rule them all - a unified CLI/TUI over every package manager on the system."
 arch=('x86_64')
 url="https://github.com/nickheyer/snowcone"
-license=('custom')
+license=('MIT OR Apache-2.0')
 depends=('gcc-libs')
 makedepends=('cargo')
 source=("${pkgname}-${pkgver}.tar.gz::https://github.com/nickheyer/snowcone/archive/refs/tags/v${pkgver}.tar.gz")
@@ -20,4 +20,5 @@ build() {
 package() {
   cd "${pkgname}-${pkgver}"
   install -Dm755 target/release/snow "${pkgdir}/usr/bin/snow"
+  install -Dm644 LICENSE-MIT LICENSE-APACHE -t "${pkgdir}/usr/share/licenses/${pkgname}"
 }
