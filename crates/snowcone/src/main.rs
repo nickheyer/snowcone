@@ -2,6 +2,8 @@ mod cli;
 mod commands;
 mod config;
 mod output;
+mod picker;
+mod relevance;
 mod tui;
 
 use clap::Parser;

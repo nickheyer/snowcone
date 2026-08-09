@@ -67,7 +67,6 @@ pub enum Action {
     ConfirmMove,
     ConfirmActivate,
     HelpClose,
-    HelpScroll(i64),
     /// Key is real but meaningless here; show where it works instead.
     Hint(&'static str),
 }
@@ -86,15 +85,9 @@ pub fn map_key(ctx: KeyCtx, key: KeyEvent) -> Option<Action> {
     }
 }
 
-fn help_key(key: KeyEvent) -> Option<Action> {
-    match key.code {
-        KeyCode::Char('?') | KeyCode::Esc | KeyCode::Char('q') => Some(Action::HelpClose),
-        KeyCode::Char('j') | KeyCode::Down => Some(Action::HelpScroll(1)),
-        KeyCode::Char('k') | KeyCode::Up => Some(Action::HelpScroll(-1)),
-        KeyCode::PageDown => Some(Action::HelpScroll(10)),
-        KeyCode::PageUp => Some(Action::HelpScroll(-10)),
-        _ => None,
-    }
+/// Any key collapses the overlay - it is a cheat sheet, not a place to be.
+fn help_key(_key: KeyEvent) -> Option<Action> {
+    Some(Action::HelpClose)
 }
 
 fn confirm_key(key: KeyEvent) -> Option<Action> {
@@ -254,55 +247,82 @@ fn normal_key(ctx: KeyCtx, key: KeyEvent) -> Option<Action> {
     }
 }
 
-/// Help overlay content. Every row here is probed by the keymap test
-/// below, so the overlay can't promise a key that does nothing.
-pub fn help_sections() -> &'static [(&'static str, &'static [(&'static str, &'static str)])] {
+/// Keybind overlay content: `(key, action, description)` rows, most
+/// commonly used first, one action per row - never a grouped mystery like
+/// "i/s/u". A key sharing a row shares the exact same action (synonyms
+/// only). Every row is probed by the keymap test below, so the overlay
+/// can't promise a key that does nothing.
+pub type HelpEntry = (&'static str, &'static str, &'static str);
+
+pub fn help_sections() -> &'static [(&'static str, &'static [HelpEntry])] {
     &[
         (
             "Global",
             &[
-                ("q / Ctrl-C", "quit (guarded while a mutation runs)"),
-                ("?", "this help"),
-                ("1-5", "jump to Search / Installed / Outdated / Managers / Tasks"),
-                ("Tab ] / [", "next / previous tab"),
-                ("j/↓ k/↑", "move selection"),
-                ("g/Home G/End", "first / last row"),
-                ("Ctrl-d/PgDn Ctrl-u/PgUp", "page down / up"),
-                ("r", "reload this tab's data"),
-                ("R", "refresh package databases (confirmed)"),
-                ("Esc", "cancel fetch, then clear marks, then clear filter"),
+                ("q", "quit", "exit snow (guarded while a mutation runs)"),
+                ("j / ↓", "move down", "select the next row"),
+                ("k / ↑", "move up", "select the previous row"),
+                ("Tab / ]", "next tab", ""),
+                ("Shift-Tab / [", "previous tab", ""),
+                ("1-5", "jump to tab", "Search, Installed, Outdated, Managers, Tasks"),
+                ("r", "reload", "re-run this tab's data fetch"),
+                ("R", "refresh databases", "index refresh on every enabled manager (confirmed)"),
+                ("g / Home", "first row", ""),
+                ("G / End", "last row", ""),
+                ("Ctrl-d / PgDn", "page down", ""),
+                ("Ctrl-u / PgUp", "page up", ""),
+                ("Esc", "back", "cancel fetch, else clear marks, else clear filter"),
+                ("?", "keybinds", "this overlay; any key closes it"),
+                ("Ctrl-C", "quit", "same guard as q; force-quits from the quit dialog"),
             ],
         ),
         (
             "Packages (Search / Installed / Outdated)",
             &[
-                ("/", "edit search query / filter"),
-                ("Space", "mark row (and advance)"),
-                ("v", "mark / unmark all visible"),
-                ("s / S", "cycle sort key / flip direction"),
-                ("Enter", "expand / collapse details"),
-                ("i / d / u", "install / remove / upgrade marked-or-selected"),
-                ("U", "upgrade everything (Outdated tab)"),
+                ("/", "search / filter", "type a query (Search) or narrow rows (others)"),
+                ("i", "install", "install the marked-or-selected packages"),
+                ("d", "remove", "remove the marked-or-selected packages"),
+                ("u", "upgrade", "upgrade the marked-or-selected packages"),
+                ("U", "upgrade all", "everything at once, from the Outdated tab"),
+                ("Space", "mark", "mark the row for a batch action, then advance"),
+                ("v", "mark visible", "mark every visible row (again to unmark)"),
+                ("Enter", "details", "expand or collapse the selected package's details"),
+                ("s", "sort", "cycle the sort column"),
+                ("S", "sort direction", "flip ascending / descending"),
+            ],
+        ),
+        (
+            "Search input",
+            &[
+                ("Enter", "run search", "fan out; `@manager terms` searches only that manager"),
+                ("Esc", "browse results", "leave the input; / returns to it"),
+                ("Ctrl-U", "clear", "wipe the query"),
             ],
         ),
         (
             "Managers",
-            &[("Space / Enter", "enable / disable manager (persisted)")],
+            &[(
+                "Space / Enter",
+                "toggle manager",
+                "enable / disable it (persisted to config)",
+            )],
         ),
         (
             "Tasks",
             &[
-                ("Enter / Esc", "focus / unfocus the output pane"),
-                ("f", "toggle follow (auto-scroll)"),
-                ("x", "cancel the selected task"),
-                ("C", "clear finished tasks"),
+                ("Enter", "focus output", "scroll the selected task's output; Esc unfocuses"),
+                ("f", "follow", "auto-scroll output as it streams"),
+                ("x", "cancel task", "kill the selected running task (confirmed for mutations)"),
+                ("C", "clear finished", "drop completed tasks from the list"),
             ],
         ),
         (
             "Dialogs",
             &[
-                ("y / n / Esc", "confirm / dismiss"),
-                ("← → / Enter", "pick a button / activate it"),
+                ("y", "confirm", ""),
+                ("n / Esc", "cancel", ""),
+                ("← / → / Tab", "pick button", ""),
+                ("Enter", "activate", "press the highlighted button"),
             ],
         ),
     ]
@@ -425,18 +445,43 @@ mod tests {
         ] {
             assert!(map_key(ctx(ModeKind::Input, Tab::Search), k).is_some());
         }
-        // Help mode closes.
-        assert_eq!(
-            map_key(ctx(ModeKind::Help, Tab::Search), key(KeyCode::Char('?'))),
-            Some(Action::HelpClose)
-        );
+    }
+
+    /// The overlay collapses on ANY key - there is no key it swallows.
+    #[test]
+    fn any_key_closes_help() {
+        for k in [
+            key(KeyCode::Char('?')),
+            key(KeyCode::Char('q')),
+            key(KeyCode::Esc),
+            key(KeyCode::Char('j')),
+            key(KeyCode::Enter),
+            key(KeyCode::PageDown),
+            key(KeyCode::Char('x')),
+        ] {
+            assert_eq!(
+                map_key(ctx(ModeKind::Help, Tab::Search), k),
+                Some(Action::HelpClose),
+                "help did not close on {k:?}"
+            );
+        }
     }
 
     #[test]
     fn no_dead_keys_at_launch() {
-        // Launch state is Search tab, Normal mode: the footer's advertised
-        // keys must all act immediately.
-        let launch = ctx(ModeKind::Normal, Tab::Search);
+        // Launch state is the Search tab with the query input focused:
+        // typing goes straight into the query, Enter runs it, Esc drops to
+        // browsing, Ctrl-C still quits.
+        let launch = ctx(ModeKind::Input, Tab::Search);
+        assert_eq!(
+            map_key(launch, key(KeyCode::Char('v'))),
+            Some(Action::InputChar('v'))
+        );
+        assert_eq!(map_key(launch, key(KeyCode::Enter)), Some(Action::InputSubmit));
+        assert_eq!(map_key(launch, key(KeyCode::Esc)), Some(Action::InputCancel));
+        assert_eq!(map_key(launch, ctrl('c')), Some(Action::CtrlC));
+        // And once browsing, the footer's advertised keys all act.
+        let browsing = ctx(ModeKind::Normal, Tab::Search);
         for k in [
             key(KeyCode::Char('q')),
             key(KeyCode::Char('/')),
@@ -445,7 +490,7 @@ mod tests {
             key(KeyCode::Char('j')),
             key(KeyCode::Char('2')),
         ] {
-            assert!(map_key(launch, k).is_some(), "dead launch key: {k:?}");
+            assert!(map_key(browsing, k).is_some(), "dead launch key: {k:?}");
         }
     }
 

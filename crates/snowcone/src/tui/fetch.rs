@@ -31,11 +31,14 @@ impl ListTarget {
 }
 
 /// Fan a query out to every enabled database's elected search manager.
-/// Each database reports as it finishes (`SearchBatch`); the supervisor
-/// closes with `SearchDone` carrying per-manager failures.
+/// A non-empty `restrict` (the query's `@manager` tokens) narrows the
+/// fan-out to those manager ids. Each database reports as it finishes
+/// (`SearchBatch`); the supervisor closes with `SearchDone` carrying
+/// per-manager failures.
 pub fn spawn_search(
     groups: Arc<Vec<DatabaseGroup>>,
     disabled: BTreeSet<String>,
+    restrict: BTreeSet<String>,
     query: String,
     epoch: u64,
     task: TaskId,
@@ -46,11 +49,12 @@ pub fn spawn_search(
         for index in 0..groups.len() {
             let groups = Arc::clone(&groups);
             let disabled = disabled.clone();
+            let restrict = restrict.clone();
             let query = query.clone();
             let tx = tx.clone();
             set.spawn(async move {
                 let group = &groups[index];
-                let manager = elect_enabled(group, Operation::Search, &disabled)?;
+                let manager = elect_search(group, &disabled, &restrict)?;
                 match manager.search(&query).await {
                     Ok(packages) => {
                         let packages = packages
@@ -72,6 +76,22 @@ pub fn spawn_search(
         }
         let _ = tx.send(TuiMsg::SearchDone { task, epoch, errors });
     })
+}
+
+/// [`elect_enabled`] narrowed to the ids the query's `@manager` tokens
+/// named (all of them when none were).
+fn elect_search<'a>(
+    group: &'a DatabaseGroup,
+    disabled: &BTreeSet<String>,
+    restrict: &BTreeSet<String>,
+) -> Option<&'a dyn snowcone_core::PackageManager> {
+    group
+        .managers
+        .iter()
+        .map(|manager| manager.as_ref())
+        .filter(|manager| !disabled.contains(manager.id()))
+        .filter(|manager| restrict.is_empty() || restrict.contains(manager.id()))
+        .find(|manager| manager.supports(Operation::Search))
 }
 
 /// Aggregate installed / outdated packages across every enabled

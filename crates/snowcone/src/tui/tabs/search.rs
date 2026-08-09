@@ -1,5 +1,7 @@
 //! Search tab: query bar, fan-out results, detail pane.
 
+use std::collections::BTreeSet;
+
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Style, Stylize};
@@ -14,6 +16,8 @@ use crate::tui::ui;
 pub struct SearchTab {
     pub input: String,
     pub last_query: String,
+    /// Manager ids the running query's `@manager` tokens named.
+    pub restrict: BTreeSet<String>,
     pub epoch: u64,
     pub in_flight: Option<TaskId>,
     pub errors: Vec<String>,
@@ -22,13 +26,17 @@ pub struct SearchTab {
 
 impl SearchTab {
     pub fn new() -> Self {
+        let mut list = PackageList::new();
+        // Best match first; `s` still cycles to the other sort keys.
+        list.sort = SortKey::Relevance;
         Self {
             input: String::new(),
             last_query: String::new(),
+            restrict: BTreeSet::new(),
             epoch: 0,
             in_flight: None,
             errors: Vec::new(),
-            list: PackageList::new(),
+            list,
         }
     }
 }
@@ -49,7 +57,17 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
 
 fn draw_query_bar(frame: &mut Frame, app: &App, area: Rect) {
     let editing = matches!(app.mode, Mode::Input(InputTarget::SearchQuery));
-    let mut title = String::from(" Search (/) ");
+    let mut title = if app.search.restrict.is_empty() {
+        String::from(" Search (/) ")
+    } else {
+        let only: Vec<&str> = app
+            .search
+            .restrict
+            .iter()
+            .map(String::as_str)
+            .collect();
+        format!(" Search (/) - only {} ", only.join(", "))
+    };
     if app.search.in_flight.is_some() {
         title = format!(" Search {} ", ui::spinner(app.tick));
     }
@@ -87,7 +105,9 @@ fn draw_results(frame: &mut Frame, app: &mut App, area: Rect) {
         } else if list.total_len() > 0 {
             "No rows match the filter.".to_string()
         } else if app.search.last_query.is_empty() {
-            "Press / to search across every enabled package manager at once.".to_string()
+            "Type your query and press Enter - it fans out to every enabled package \
+             manager at once. Prefix @manager to narrow (e.g. `@apt vim`)."
+                .to_string()
         } else {
             format!("No results for '{}'.", app.search.last_query)
         };

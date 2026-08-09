@@ -38,6 +38,105 @@ impl Elevator {
             .map(Self::Helper)
             .unwrap_or(Self::Unavailable)
     }
+
+    /// Whether this helper caches credentials in a timestamp that can be
+    /// validated up front and refreshed. One explicit entry per supported
+    /// helper - no inference:
+    ///
+    /// - `sudo`: yes. `sudo -v` validates (prompting on the tty) and
+    ///   extends the timestamp; `sudo -n -v` refreshes it non-interactively.
+    /// - `doas`: no. Persistence is an opt-in `doas.conf` feature with no
+    ///   validate/refresh verb; each invocation prompts as configured.
+    /// - `run0` / `pkexec`: no. polkit authorizes per invocation through
+    ///   the active agent; there is no user-warmable cache.
+    fn caches_credentials(&self) -> bool {
+        match self {
+            Elevator::Helper(helper) => {
+                helper.file_name().is_some_and(|name| name == "sudo")
+            }
+            Elevator::NotNeeded | Elevator::Unavailable => false,
+        }
+    }
+
+    /// Acquire elevated credentials once, up front, on the controlling
+    /// terminal, and keep them fresh until the returned session is dropped.
+    ///
+    /// For sudo this runs `sudo -v` (prompting the user now, not later
+    /// buried in a package manager's output) and then refreshes the
+    /// timestamp every [`ElevationSession::REFRESH`] so it cannot expire
+    /// mid-run - long source builds included. Helpers without a credential
+    /// cache (see [`Self::caches_credentials`]) return an inert session:
+    /// they prompt per invocation by design and that is their contract.
+    ///
+    /// Errors only when the user fails authentication itself.
+    pub async fn hold(&self) -> Result<ElevationSession> {
+        if let Elevator::Unavailable = self {
+            return Err(Error::ElevationUnavailable);
+        }
+        if !self.caches_credentials() {
+            return Ok(ElevationSession { refresher: None });
+        }
+        let Elevator::Helper(helper) = self else {
+            unreachable!("caches_credentials is false for non-helpers");
+        };
+        let status = Command::new(helper)
+            .arg("-v")
+            .stdin(Stdio::inherit())
+            .stdout(Stdio::inherit())
+            .stderr(Stdio::inherit())
+            .status()
+            .await?;
+        if !status.success() {
+            return Err(Error::Other(format!(
+                "credential validation failed ({} -v)",
+                helper.display()
+            )));
+        }
+        let helper = helper.clone();
+        let refresher = tokio::spawn(async move {
+            let mut ticker = tokio::time::interval(ElevationSession::REFRESH);
+            ticker.tick().await; // first tick fires immediately; -v just ran
+            loop {
+                ticker.tick().await;
+                // -n: never prompt from the background. If the refresh
+                // loses the race with expiry, the next elevated command
+                // prompts on the tty exactly as it would have anyway.
+                let _ = Command::new(&helper)
+                    .args(["-n", "-v"])
+                    .stdin(Stdio::null())
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .status()
+                    .await;
+            }
+        });
+        Ok(ElevationSession {
+            refresher: Some(refresher),
+        })
+    }
+}
+
+/// Live credential session from [`Elevator::hold`]. Dropping it stops the
+/// background refresh; the already-granted timestamp is left to expire on
+/// the helper's own schedule (matching what a manual `sudo` run leaves
+/// behind - snowcone neither extends nor revokes beyond that).
+#[derive(Debug)]
+pub struct ElevationSession {
+    refresher: Option<tokio::task::JoinHandle<()>>,
+}
+
+impl ElevationSession {
+    /// Well under every distro's default sudo `timestamp_timeout`
+    /// (5-15 minutes), so the timestamp can never expire between refreshes.
+    const REFRESH: std::time::Duration = std::time::Duration::from_secs(60);
+}
+
+impl Drop for ElevationSession {
+    fn drop(&mut self) {
+        if let Some(refresher) = &self.refresher {
+            refresher.abort();
+        }
+    }
 }
 
 /// Builder for backend subprocess invocations.

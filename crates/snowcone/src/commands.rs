@@ -6,11 +6,12 @@ use std::collections::HashMap;
 use anyhow::bail;
 use serde::Serialize;
 use snowcone_core::{
-    DatabaseGroup, Detection, Error, HostInfo, OpContext, Operation, PackageManager,
-    PackageRequest, PackageSummary, Registry, group_by_database,
+    DatabaseGroup, Detection, ElevationSession, Elevator, Error, HostInfo, InstallState,
+    OpContext, Operation, PackageManager, PackageRequest, PackageSummary, Registry,
+    group_by_database,
 };
 
-use crate::output;
+use crate::{output, picker, relevance};
 
 /// Status of one registered backend on this host, shared by
 /// `snow managers` and the TUI sidebar.
@@ -162,25 +163,119 @@ impl Runner {
         Ok(elected)
     }
 
-    /// Mutating operations touch exactly one database; make the user pick
-    /// when several could satisfy the request.
-    fn one<'a>(
+    /// Which of the elected managers actually know `name`, probed via
+    /// `info`. Database order is preserved, so index 0 is the default pick.
+    async fn locate<'a>(
+        &self,
+        elected: &[&'a dyn PackageManager],
+        name: &str,
+    ) -> Vec<(&'a dyn PackageManager, PackageSummary)> {
+        let mut found = Vec::new();
+        for manager in elected {
+            match manager.info(name).await {
+                Ok(package) => found.push((*manager, PackageSummary::new(package.as_ref()))),
+                Err(Error::NotFound(_)) => {}
+                Err(error) => {
+                    tracing::debug!(manager = manager.id(), %error, "info probe failed");
+                }
+            }
+        }
+        found
+    }
+
+    /// Resolve every request to one manager, yay-style: probe which
+    /// databases know the package, take single hits automatically, and open
+    /// the numbered picker when several match (choosing the package chooses
+    /// its manager). Returns per-manager batches in pick order.
+    async fn assign<'a>(
         &self,
         groups: &'a [DatabaseGroup],
         operation: Operation,
-    ) -> anyhow::Result<&'a dyn PackageManager> {
+        requests: Vec<PackageRequest>,
+        prefer_installed: bool,
+    ) -> anyhow::Result<Vec<(&'a dyn PackageManager, Vec<PackageRequest>)>> {
         let elected = self.elect(groups, operation)?;
-        if elected.len() > 1 {
-            let targets: Vec<String> = elected
-                .iter()
-                .map(|manager| format!("{} [{}]", manager.id(), manager.database_id()))
-                .collect();
-            bail!(
-                "multiple package databases could handle {operation} ({}); pick one with --manager",
-                targets.join(", ")
-            );
+        let mut batches: Vec<(&'a dyn PackageManager, Vec<PackageRequest>)> = Vec::new();
+        let mut assign = |manager: &'a dyn PackageManager, request: PackageRequest| {
+            match batches
+                .iter_mut()
+                .find(|(assigned, _)| assigned.id() == manager.id())
+            {
+                Some((_, list)) => list.push(request),
+                None => batches.push((manager, vec![request])),
+            }
+        };
+        // One capable manager (usually an explicit --manager): nothing to
+        // resolve, no probes.
+        if elected.len() == 1 {
+            for request in requests {
+                assign(elected[0], request);
+            }
+            return Ok(batches);
         }
-        Ok(elected[0])
+        for request in requests {
+            let mut candidates = self.locate(&elected, &request.name).await;
+            // Remove/upgrade want the copy that is actually installed;
+            // fall back to every match when no probe reports one (the
+            // chosen backend still refuses cleanly if it is truly absent).
+            if prefer_installed {
+                let installed: Vec<_> = candidates
+                    .iter()
+                    .filter(|(_, summary)| {
+                        matches!(
+                            summary.state,
+                            InstallState::Installed | InstallState::Upgradable
+                        )
+                    })
+                    .map(|(manager, summary)| (*manager, summary.clone()))
+                    .collect();
+                if !installed.is_empty() {
+                    candidates = installed;
+                }
+            }
+            let manager = match candidates.len() {
+                0 => {
+                    let ids: Vec<&str> = elected.iter().map(|manager| manager.id()).collect();
+                    bail!(
+                        "`{}` not found by any capable manager ({}) - try `snow search {}`",
+                        request.name,
+                        ids.join(", "),
+                        request.name
+                    );
+                }
+                1 => candidates[0].0,
+                _ => {
+                    let summaries: Vec<PackageSummary> = candidates
+                        .iter()
+                        .map(|(_, summary)| summary.clone())
+                        .collect();
+                    let headline = format!(
+                        "`{}` matches in {} managers",
+                        request.name,
+                        candidates.len()
+                    );
+                    let choice =
+                        picker::pick(headline, &summaries, self.op_ctx.assume_yes).await?;
+                    candidates[choice].0
+                }
+            };
+            assign(manager, request);
+        }
+        Ok(batches)
+    }
+
+    /// Validate credentials once, up front, when any manager in the run
+    /// needs them: one password prompt for the whole batch, kept warm by
+    /// the session so it cannot expire mid-build (see [`Elevator::hold`]).
+    async fn hold_elevation<'a>(
+        &self,
+        mut managers: impl Iterator<Item = &'a dyn PackageManager>,
+        operation: Operation,
+    ) -> anyhow::Result<Option<ElevationSession>> {
+        if self.host.is_root || !managers.any(|manager| manager.needs_elevation(operation)) {
+            return Ok(None);
+        }
+        Ok(Some(Elevator::detect(&self.host).hold().await?))
     }
 
     pub async fn search(&self, query: &str) -> anyhow::Result<()> {
@@ -198,7 +293,14 @@ impl Runner {
                 }
             }
         }
-        results.sort_by(|a, b| a.name.cmp(&b.name).then(a.manager.cmp(&b.manager)));
+        // Best matches first: exact name, then prefix, then substring -
+        // not the alphabet, which buries `vim` under 400 a-through-u hits.
+        results.sort_by(|a, b| {
+            relevance::rank(&a.name, query)
+                .cmp(&relevance::rank(&b.name, query))
+                .then_with(|| a.name.cmp(&b.name))
+                .then_with(|| a.manager.cmp(&b.manager))
+        });
         output::packages(&results, self.json)
     }
 
@@ -258,8 +360,12 @@ impl Runner {
 
     pub async fn refresh(&self) -> anyhow::Result<()> {
         let groups = self.groups()?;
+        let elected = self.elect(&groups, Operation::Refresh)?;
+        let _session = self
+            .hold_elevation(elected.iter().copied(), Operation::Refresh)
+            .await?;
         let mut failures = Vec::new();
-        for manager in self.elect(&groups, Operation::Refresh)? {
+        for manager in elected {
             match manager.refresh(&self.op_ctx).await {
                 Ok(()) => println!("refreshed {} [{}]", manager.id(), manager.database_id()),
                 Err(error) => {
@@ -277,16 +383,36 @@ impl Runner {
     pub async fn install(&self, specs: &[String]) -> anyhow::Result<()> {
         let requests = parse_requests(specs);
         let groups = self.groups()?;
-        let manager = self.one(&groups, Operation::Install)?;
-        manager.install(&requests, &self.op_ctx).await?;
+        let batches = self
+            .assign(&groups, Operation::Install, requests, false)
+            .await?;
+        let _session = self
+            .hold_elevation(
+                batches.iter().map(|(manager, _)| *manager),
+                Operation::Install,
+            )
+            .await?;
+        for (manager, requests) in &batches {
+            manager.install(requests, &self.op_ctx).await?;
+        }
         Ok(())
     }
 
     pub async fn remove(&self, specs: &[String]) -> anyhow::Result<()> {
         let requests = parse_requests(specs);
         let groups = self.groups()?;
-        let manager = self.one(&groups, Operation::Remove)?;
-        manager.remove(&requests, &self.op_ctx).await?;
+        let batches = self
+            .assign(&groups, Operation::Remove, requests, true)
+            .await?;
+        let _session = self
+            .hold_elevation(
+                batches.iter().map(|(manager, _)| *manager),
+                Operation::Remove,
+            )
+            .await?;
+        for (manager, requests) in &batches {
+            manager.remove(requests, &self.op_ctx).await?;
+        }
         Ok(())
     }
 
@@ -294,9 +420,14 @@ impl Runner {
         let groups = self.groups()?;
         if specs.is_empty() {
             // `snow upgrade` upgrades everything: each database once,
-            // through its elected manager.
+            // through its elected manager, with credentials validated once
+            // up front instead of one sudo prompt per database.
+            let elected = self.elect(&groups, Operation::Upgrade)?;
+            let _session = self
+                .hold_elevation(elected.iter().copied(), Operation::Upgrade)
+                .await?;
             let mut failures = Vec::new();
-            for manager in self.elect(&groups, Operation::Upgrade)? {
+            for manager in elected {
                 match manager.upgrade(&[], &self.op_ctx).await {
                     Ok(()) => println!("upgraded {} [{}]", manager.id(), manager.database_id()),
                     Err(error) => {
@@ -311,8 +442,18 @@ impl Runner {
             return Ok(());
         }
         let requests = parse_requests(specs);
-        let manager = self.one(&groups, Operation::Upgrade)?;
-        manager.upgrade(&requests, &self.op_ctx).await?;
+        let batches = self
+            .assign(&groups, Operation::Upgrade, requests, true)
+            .await?;
+        let _session = self
+            .hold_elevation(
+                batches.iter().map(|(manager, _)| *manager),
+                Operation::Upgrade,
+            )
+            .await?;
+        for (manager, requests) in &batches {
+            manager.upgrade(requests, &self.op_ctx).await?;
+        }
         Ok(())
     }
 

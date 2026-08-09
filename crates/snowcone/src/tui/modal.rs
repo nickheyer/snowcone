@@ -115,28 +115,29 @@ pub fn draw_confirm(frame: &mut Frame, state: &ConfirmState) {
     frame.render_widget(Paragraph::new(buttons), buttons_area);
 }
 
-pub fn draw_help(frame: &mut Frame, scroll: u16) {
-    let area = centered_pct(frame.area(), 70, 80);
+/// The expanded keybind legend: key / action / description columns per
+/// section. Collapses on any key (see `keys::help_key`).
+pub fn draw_help(frame: &mut Frame) {
+    let area = centered_pct(frame.area(), 80, 90);
     frame.render_widget(Clear, area);
     let block = Block::bordered()
-        .title(" Help - ? or Esc to close ")
+        .title(" Keybinds - any key closes ")
         .border_style(Style::new().fg(Color::Cyan));
     let mut lines: Vec<Line<'static>> = Vec::new();
     for (section, entries) in keys::help_sections() {
+        if !lines.is_empty() {
+            lines.push(Line::from(""));
+        }
         lines.push(Line::from(Span::from(*section).bold().fg(Color::Cyan)));
-        for (key, what) in *entries {
+        for (key, action, description) in *entries {
             lines.push(Line::from(vec![
-                Span::from(format!("  {key:<24}")).fg(Color::Yellow),
-                Span::from(*what),
+                Span::from(format!("  {key:<16}")).fg(Color::Yellow),
+                Span::from(format!("{action:<20}")).bold(),
+                Span::from(*description).fg(Color::Gray),
             ]));
         }
-        lines.push(Line::from(""));
     }
-    let max_scroll = (lines.len() as u16).saturating_sub(area.height.saturating_sub(2));
-    let paragraph = Paragraph::new(lines)
-        .block(block)
-        .scroll((scroll.min(max_scroll), 0));
-    frame.render_widget(paragraph, area);
+    frame.render_widget(Paragraph::new(lines).block(block), area);
 }
 
 fn centered(area: Rect, width: u16, height: u16) -> Rect {

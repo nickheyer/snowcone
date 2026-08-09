@@ -22,7 +22,7 @@ pub use capability::{Capabilities, Operation};
 pub use discovery::{BackendFactory, Detection, Probe, Registry};
 pub use election::{DatabaseGroup, PREFERENCE, group_by_database};
 pub use error::{Error, Result};
-pub use exec::{Cmd, CmdOutput, Elevator};
+pub use exec::{Cmd, CmdOutput, ElevationSession, Elevator};
 pub use host::{HostInfo, OsRelease, find_program};
 pub use manager::{ManagerKind, OpContext, PackageManager};
 pub use package::{InstallState, Package, PackageRequest, PackageSummary};

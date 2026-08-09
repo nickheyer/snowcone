@@ -31,7 +31,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     draw_footer(frame, app, footer);
 
     match &app.mode {
-        Mode::Help { scroll } => modal::draw_help(frame, *scroll),
+        Mode::Help => modal::draw_help(frame),
         Mode::Confirm(state) => modal::draw_confirm(frame, state),
         _ => {}
     }
@@ -72,17 +72,30 @@ fn draw_tab_bar(frame: &mut Frame, app: &App, area: Rect) {
     frame.render_widget(Paragraph::new(Line::from(spans)), area);
 }
 
+/// Footer legend: every bind named after its action, most-used first,
+/// quit always visible. `?` expands the full key:action:description list.
 fn hints(app: &App) -> &'static str {
     match &app.mode {
-        Mode::Input(_) => " Enter apply · Esc back · Ctrl-U clear ",
-        Mode::Confirm(_) => " y confirm · n / Esc cancel · ←/→ pick ",
-        Mode::Help { .. } => " j/k scroll · Esc close ",
+        Mode::Input(InputTarget::SearchQuery) => {
+            " Enter search · Esc browse results · Ctrl-U clear · Ctrl-C quit "
+        }
+        Mode::Input(InputTarget::Filter) => " Enter apply filter · Esc back · Ctrl-U clear ",
+        Mode::Confirm(_) => " y confirm · n cancel · ←/→ pick button · Enter activate ",
+        Mode::Help => " any key closes ",
         Mode::Normal => match app.tab {
-            Tab::Search => " / search · Space mark · i/d/u act · s sort · Enter details · ? help ",
-            Tab::Installed => " / filter · Space mark · d remove · u upgrade · r reload · ? help ",
-            Tab::Outdated => " / filter · u upgrade · U upgrade all · r reload · ? help ",
-            Tab::Managers => " Space toggle · r re-probe · ? help ",
-            Tab::Tasks => " Enter output · f follow · x cancel · C clear · ? help ",
+            Tab::Search => {
+                " / search · j/k move · i install · d remove · u upgrade · Space mark · Enter details · ? keys · q quit "
+            }
+            Tab::Installed => {
+                " / filter · j/k move · d remove · u upgrade · Space mark · Enter details · r reload · ? keys · q quit "
+            }
+            Tab::Outdated => {
+                " / filter · j/k move · u upgrade · U upgrade all · Space mark · r reload · ? keys · q quit "
+            }
+            Tab::Managers => " Space toggle · j/k move · r re-probe · ? keys · q quit ",
+            Tab::Tasks => {
+                " Enter output · j/k move · f follow · x cancel · C clear finished · ? keys · q quit "
+            }
         },
     }
 }

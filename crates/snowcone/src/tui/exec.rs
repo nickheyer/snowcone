@@ -14,8 +14,8 @@ use crossterm::terminal::{
 use crossterm::{cursor, execute};
 use ratatui::DefaultTerminal;
 use snowcone_core::{
-    DatabaseGroup, Error, OpContext, Operation, OutputStream, PackageManager, ProgressEvent,
-    progress_channel,
+    DatabaseGroup, Elevator, Error, HostInfo, OpContext, Operation, OutputStream, PackageManager,
+    ProgressEvent, progress_channel,
 };
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::task::JoinHandle;
@@ -86,6 +86,7 @@ pub async fn run_suspended(
     input: &InputReader,
     groups: &[DatabaseGroup],
     plan: &MutationPlan,
+    host: &HostInfo,
 ) -> Result<(), String> {
     // The reader thread is provably parked before the child exists, so it
     // can never steal the child's keystrokes.
@@ -93,19 +94,7 @@ pub async fn run_suspended(
     let result = match leave_tui() {
         Ok(()) => {
             banner(plan);
-            let outcome = match find_manager(groups, plan) {
-                Ok(manager) => {
-                    let ctx = OpContext {
-                        assume_yes: false,
-                        dry_run: false,
-                        events: None,
-                    };
-                    dispatch(manager, plan.operation, plan, &ctx)
-                        .await
-                        .map_err(|error| error.to_string())
-                }
-                Err(error) => Err(error.to_string()),
-            };
+            let outcome = run_plan(groups, plan, host).await;
             match &outcome {
                 Ok(()) => println!("snow: done"),
                 Err(error) => println!("snow: failed: {error}"),
@@ -119,6 +108,35 @@ pub async fn run_suspended(
     reenter_tui(terminal);
     input.resume();
     result
+}
+
+async fn run_plan(
+    groups: &[DatabaseGroup],
+    plan: &MutationPlan,
+    host: &HostInfo,
+) -> Result<(), String> {
+    // Credentials first, on their own clean prompt - not buried somewhere
+    // in the tool's output - and kept warm for the whole run so a long
+    // build can't outlive the sudo timestamp (see `Elevator::hold`).
+    let _session = if plan.needs_elevation && !host.is_root {
+        Some(
+            Elevator::detect(host)
+                .hold()
+                .await
+                .map_err(|error| error.to_string())?,
+        )
+    } else {
+        None
+    };
+    let manager = find_manager(groups, plan).map_err(|error| error.to_string())?;
+    let ctx = OpContext {
+        assume_yes: false,
+        dry_run: false,
+        events: None,
+    };
+    dispatch(manager, plan.operation, plan, &ctx)
+        .await
+        .map_err(|error| error.to_string())
 }
 
 fn find_manager<'a>(

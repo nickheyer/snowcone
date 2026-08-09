@@ -1,6 +1,6 @@
 //! TUI application state and event loop.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -76,7 +76,7 @@ pub enum Mode {
     Normal,
     Input(InputTarget),
     Confirm(ConfirmState),
-    Help { scroll: u16 },
+    Help,
 }
 
 impl Mode {
@@ -85,7 +85,7 @@ impl Mode {
             Mode::Normal => ModeKind::Normal,
             Mode::Input(_) => ModeKind::Input,
             Mode::Confirm(_) => ModeKind::Confirm,
-            Mode::Help { .. } => ModeKind::Help,
+            Mode::Help => ModeKind::Help,
         }
     }
 }
@@ -244,9 +244,10 @@ impl App {
             statuses,
             registered_total,
             tab: Tab::Search,
-            // Normal mode at launch: every keybind works immediately; `/`
-            // enters the search input deliberately.
-            mode: Mode::Normal,
+            // Launch straight into the search box - typing a query is the
+            // TUI's first purpose, and a dead-looking input reads as broken.
+            // Esc drops to Normal-mode browsing; `/` returns.
+            mode: Mode::Input(InputTarget::SearchQuery),
             search: SearchTab::new(),
             installed: ListTab::new(),
             outdated: ListTab::new(),
@@ -342,7 +343,7 @@ impl App {
                 }
             }
             Action::Quit => self.request_quit(),
-            Action::Help => self.mode = Mode::Help { scroll: 0 },
+            Action::Help => self.mode = Mode::Help,
             Action::GoTab(tab) => self.set_tab(tab),
             Action::NextTab => self.set_tab(self.tab.next()),
             Action::PrevTab => self.set_tab(self.tab.prev()),
@@ -485,11 +486,6 @@ impl App {
                 self.confirm_resolve(yes, terminal, input).await;
             }
             Action::HelpClose => self.mode = Mode::Normal,
-            Action::HelpScroll(delta) => {
-                if let Mode::Help { scroll } = &mut self.mode {
-                    *scroll = (*scroll as i64 + delta).clamp(0, 500) as u16;
-                }
-            }
             Action::Hint(text) => self.info(text),
         }
     }
@@ -703,9 +699,37 @@ impl App {
     }
 
     fn start_search(&mut self, query: String) {
-        let query = query.trim().to_string();
-        if query.is_empty() {
+        let raw = query.trim().to_string();
+        if raw.is_empty() {
             self.info("type a query first (/)");
+            return;
+        }
+        // `@manager` tokens narrow the fan-out; the rest is the query text.
+        let mut restrict: BTreeSet<String> = BTreeSet::new();
+        let mut terms: Vec<&str> = Vec::new();
+        for token in raw.split_whitespace() {
+            match token.strip_prefix('@') {
+                Some(id) if !id.is_empty() => {
+                    restrict.insert(id.to_ascii_lowercase());
+                }
+                _ => terms.push(token),
+            }
+        }
+        let known = |id: &String| {
+            self.pool
+                .groups
+                .iter()
+                .any(|group| group.managers.iter().any(|manager| manager.id() == id))
+        };
+        if let Some(unknown) = restrict.iter().find(|id| !known(id)) {
+            self.warn(format!(
+                "no detected manager `@{unknown}` (the Managers tab lists ids)"
+            ));
+            return;
+        }
+        let text = terms.join(" ");
+        if text.is_empty() {
+            self.info("add search terms after the @manager filter");
             return;
         }
         if let Some(task) = self.search.in_flight.take() {
@@ -714,15 +738,16 @@ impl App {
         self.search.epoch += 1;
         self.search.errors.clear();
         self.search.list.set_rows(Vec::new());
-        self.search.last_query = query.clone();
+        self.search.list.query = text.clone();
+        self.search.last_query = raw.clone();
+        self.search.restrict = restrict.clone();
         let epoch = self.search.epoch;
-        let task = self
-            .tasks
-            .begin(TaskKind::Search, format!("search '{query}'"));
+        let task = self.tasks.begin(TaskKind::Search, format!("search '{raw}'"));
         let handle = fetch::spawn_search(
             Arc::clone(&self.pool.groups),
             self.config.disabled_set(),
-            query,
+            restrict,
+            text,
             epoch,
             task,
             self.msg_tx.clone(),
@@ -915,7 +940,8 @@ impl App {
                 }
                 ExecMode::Interactive => {
                     let groups = Arc::clone(&self.pool.groups);
-                    let result = exec::run_suspended(terminal, input, &groups, &plan).await;
+                    let result =
+                        exec::run_suspended(terminal, input, &groups, &plan, &self.host).await;
                     self.tasks.push_output(
                         id,
                         OutputLine {

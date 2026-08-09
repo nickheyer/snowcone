@@ -19,6 +19,8 @@ pub fn key_of(package: &PackageSummary) -> PkgKey {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SortKey {
+    /// Best match for the current query first - the Search tab's default.
+    Relevance,
     Name,
     Manager,
     Version,
@@ -28,15 +30,17 @@ pub enum SortKey {
 impl SortKey {
     pub fn next(self) -> Self {
         match self {
+            SortKey::Relevance => SortKey::Name,
             SortKey::Name => SortKey::Manager,
             SortKey::Manager => SortKey::Version,
             SortKey::Version => SortKey::State,
-            SortKey::State => SortKey::Name,
+            SortKey::State => SortKey::Relevance,
         }
     }
 
     pub fn label(self) -> &'static str {
         match self {
+            SortKey::Relevance => "relevance",
             SortKey::Name => "name",
             SortKey::Manager => "manager",
             SortKey::Version => "version",
@@ -53,6 +57,9 @@ pub struct PackageList {
     pub sort: SortKey,
     pub sort_desc: bool,
     pub filter: String,
+    /// What relevance sorts against - the Search tab's query terms; empty
+    /// everywhere else.
+    pub query: String,
     pub marked: BTreeSet<PkgKey>,
 }
 
@@ -65,6 +72,7 @@ impl PackageList {
             sort: SortKey::Name,
             sort_desc: false,
             filter: String::new(),
+            query: String::new(),
             marked: BTreeSet::new(),
         }
     }
@@ -174,6 +182,10 @@ impl PackageList {
 
     pub fn cycle_sort(&mut self) {
         self.sort = self.sort.next();
+        // Relevance means nothing without a query (Installed / Outdated).
+        if self.sort == SortKey::Relevance && self.query.is_empty() {
+            self.sort = self.sort.next();
+        }
         self.rebuild();
     }
 
@@ -238,7 +250,7 @@ impl PackageList {
             .filter(|&index| matches_filter(&self.rows[index], &needle))
             .collect();
         self.visible.sort_by(|&a, &b| {
-            let ordering = compare_rows(&self.rows[a], &self.rows[b], self.sort);
+            let ordering = compare_rows(&self.rows[a], &self.rows[b], self.sort, &self.query);
             if self.sort_desc {
                 ordering.reverse()
             } else {
@@ -278,8 +290,12 @@ fn matches_filter(row: &PackageSummary, needle: &str) -> bool {
             .is_some_and(|origin| origin.to_lowercase().contains(needle))
 }
 
-fn compare_rows(a: &PackageSummary, b: &PackageSummary, sort: SortKey) -> Ordering {
+fn compare_rows(a: &PackageSummary, b: &PackageSummary, sort: SortKey, query: &str) -> Ordering {
     match sort {
+        SortKey::Relevance => crate::relevance::rank(&a.name, query)
+            .cmp(&crate::relevance::rank(&b.name, query))
+            .then_with(|| a.name.cmp(&b.name))
+            .then_with(|| a.manager.cmp(&b.manager)),
         SortKey::Name => (a.name.as_str(), a.manager.as_str()).cmp(&(&b.name, &b.manager)),
         SortKey::Manager => (a.manager.as_str(), a.name.as_str()).cmp(&(&b.manager, &b.name)),
         SortKey::Version => compare_versions(a.version.as_deref(), b.version.as_deref())
@@ -442,6 +458,31 @@ mod tests {
             compare_versions(Some("2.0"), Some("2.0-rc1")),
             Ordering::Less
         );
+    }
+
+    #[test]
+    fn relevance_sort_puts_exact_match_first() {
+        let mut list = PackageList::new();
+        list.sort = SortKey::Relevance;
+        list.query = "vim".to_string();
+        list.set_rows(vec![
+            pkg("apt", "neovim", None, InstallState::Available),
+            pkg("apt", "vim-airline", None, InstallState::Available),
+            pkg("apt", "vim", None, InstallState::Available),
+        ]);
+        assert_eq!(names(&list), vec!["vim", "vim-airline", "neovim"]);
+    }
+
+    #[test]
+    fn cycle_skips_relevance_without_a_query() {
+        let mut list = PackageList::new();
+        list.sort = SortKey::State;
+        list.cycle_sort();
+        assert_eq!(list.sort, SortKey::Name);
+        list.query = "vim".to_string();
+        list.sort = SortKey::State;
+        list.cycle_sort();
+        assert_eq!(list.sort, SortKey::Relevance);
     }
 
     #[test]
