@@ -1,0 +1,15 @@
+[package]
+name = "snowcone-core"
+description = "Core interfaces and plumbing for snowcone: PackageManager/Package traits, backend discovery, elevation, and subprocess execution."
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+async-trait.workspace = true
+bitflags.workspace = true
+libc.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+which.workspace = true
