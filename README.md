@@ -1,6 +1,24 @@
 # snowcone
 Very similar to mixing all the 7-11 slushee flavors together, but with linux package managers.
 
+## Usage
+
+```sh
+snow                        # open the TUI
+snow install NAME[@VERSION] # install packages
+snow remove NAME            # remove packages
+snow upgrade [NAME…]        # upgrade packages, or everything when none given
+snow search QUERY           # search available packages across managers
+snow info NAME              # show package metadata
+snow list [--outdated]      # list installed (or outdated) packages
+snow refresh                # refresh package indexes
+snow managers               # show detected managers and capabilities
+```
+
+Global flags: `-m MANAGER` to target specific backends, `--json` for machine output, `-y` to assume yes, `--dry-run` to preview.
+
+
+
 ## Distro Native Managers
 
 | Package manager | Distro(s) | Package format | Notes |

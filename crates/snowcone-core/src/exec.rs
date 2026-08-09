@@ -45,6 +45,7 @@ impl Elevator {
 pub struct Cmd {
     program: PathBuf,
     args: Vec<OsString>,
+    envs: Vec<(OsString, OsString)>,
     elevate: bool,
 }
 
@@ -53,6 +54,7 @@ impl Cmd {
         Self {
             program: program.into(),
             args: Vec::new(),
+            envs: Vec::new(),
             elevate: false,
         }
     }
@@ -68,6 +70,13 @@ impl Cmd {
         I::Item: Into<OsString>,
     {
         self.args.extend(args.into_iter().map(Into::into));
+        self
+    }
+
+    /// Set an environment variable for the child (`LC_ALL=C` keeps output
+    /// parseable regardless of the user's locale).
+    pub fn env(mut self, key: impl Into<OsString>, value: impl Into<OsString>) -> Self {
+        self.envs.push((key.into(), value.into()));
         self
     }
 
@@ -141,6 +150,7 @@ impl Cmd {
         };
         let mut command = Command::new(program);
         command.args(args);
+        command.envs(self.envs);
         Ok((command, rendered))
     }
 
