@@ -196,7 +196,8 @@ impl PackageManager for Manager {
             .map(|package| package.name.as_str())
             .collect();
         if !unpinned.is_empty() {
-            self.run(self.cmd().arg("update").args(unpinned), ctx).await?;
+            self.run(self.cmd().arg("update").args(unpinned), ctx)
+                .await?;
         }
         let pinned: Vec<String> = packages
             .iter()
@@ -204,7 +205,8 @@ impl PackageManager for Manager {
             .map(spec)
             .collect();
         if !pinned.is_empty() {
-            self.run(self.cmd().arg("install").args(pinned), ctx).await?;
+            self.run(self.cmd().arg("install").args(pinned), ctx)
+                .await?;
         }
         Ok(())
     }

@@ -480,7 +480,9 @@ Licenses:
         assert_eq!(package.version.as_deref(), Some("1.2.13"));
         assert_eq!(
             package.description.as_deref(),
-            Some("A free, general-purpose, legally unencumbered lossless data-compression library.")
+            Some(
+                "A free, general-purpose, legally unencumbered lossless data-compression library."
+            )
         );
         assert_eq!(package.homepage.as_deref(), Some("https://zlib.net"));
         assert_eq!(package.license.as_deref(), Some("Zlib"));

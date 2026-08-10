@@ -264,29 +264,65 @@ pub fn help_sections() -> &'static [(&'static str, &'static [HelpEntry])] {
                 ("k / ↑", "move up", "select the previous row"),
                 ("Tab / ]", "next tab", ""),
                 ("Shift-Tab / [", "previous tab", ""),
-                ("1-5", "jump to tab", "Search, Installed, Outdated, Managers, Tasks"),
+                (
+                    "1-5",
+                    "jump to tab",
+                    "Search, Installed, Outdated, Managers, Tasks",
+                ),
                 ("r", "reload", "re-run this tab's data fetch"),
-                ("R", "refresh databases", "index refresh on every enabled manager (confirmed)"),
+                (
+                    "R",
+                    "refresh databases",
+                    "index refresh on every enabled manager (confirmed)",
+                ),
                 ("g / Home", "first row", ""),
                 ("G / End", "last row", ""),
                 ("Ctrl-d / PgDn", "page down", ""),
                 ("Ctrl-u / PgUp", "page up", ""),
-                ("Esc", "back", "cancel fetch, else clear marks, else clear filter"),
+                (
+                    "Esc",
+                    "back",
+                    "cancel fetch, else clear marks, else clear filter",
+                ),
                 ("?", "keybinds", "this overlay; any key closes it"),
-                ("Ctrl-C", "quit", "same guard as q; force-quits from the quit dialog"),
+                (
+                    "Ctrl-C",
+                    "quit",
+                    "same guard as q; force-quits from the quit dialog",
+                ),
             ],
         ),
         (
             "Packages (Search / Installed / Outdated)",
             &[
-                ("/", "search / filter", "type a query (Search) or narrow rows (others)"),
+                (
+                    "/",
+                    "search / filter",
+                    "type a query (Search) or narrow rows (others)",
+                ),
                 ("i", "install", "install the marked-or-selected packages"),
                 ("d", "remove", "remove the marked-or-selected packages"),
                 ("u", "upgrade", "upgrade the marked-or-selected packages"),
-                ("U", "upgrade all", "everything at once, from the Outdated tab"),
-                ("Space", "mark", "mark the row for a batch action, then advance"),
-                ("v", "mark visible", "mark every visible row (again to unmark)"),
-                ("Enter", "details", "expand or collapse the selected package's details"),
+                (
+                    "U",
+                    "upgrade all",
+                    "everything at once, from the Outdated tab",
+                ),
+                (
+                    "Space",
+                    "mark",
+                    "mark the row for a batch action, then advance",
+                ),
+                (
+                    "v",
+                    "mark visible",
+                    "mark every visible row (again to unmark)",
+                ),
+                (
+                    "Enter",
+                    "details",
+                    "expand or collapse the selected package's details",
+                ),
                 ("s", "sort", "cycle the sort column"),
                 ("S", "sort direction", "flip ascending / descending"),
             ],
@@ -294,7 +330,11 @@ pub fn help_sections() -> &'static [(&'static str, &'static [HelpEntry])] {
         (
             "Search input",
             &[
-                ("Enter", "run search", "fan out; `@manager terms` searches only that manager"),
+                (
+                    "Enter",
+                    "run search",
+                    "fan out; `@manager terms` searches only that manager",
+                ),
                 ("Esc", "browse results", "leave the input; / returns to it"),
                 ("Ctrl-U", "clear", "wipe the query"),
             ],
@@ -310,9 +350,17 @@ pub fn help_sections() -> &'static [(&'static str, &'static [HelpEntry])] {
         (
             "Tasks",
             &[
-                ("Enter", "focus output", "scroll the selected task's output; Esc unfocuses"),
+                (
+                    "Enter",
+                    "focus output",
+                    "scroll the selected task's output; Esc unfocuses",
+                ),
                 ("f", "follow", "auto-scroll output as it streams"),
-                ("x", "cancel task", "kill the selected running task (confirmed for mutations)"),
+                (
+                    "x",
+                    "cancel task",
+                    "kill the selected running task (confirmed for mutations)",
+                ),
                 ("C", "clear finished", "drop completed tasks from the list"),
             ],
         ),
@@ -376,7 +424,13 @@ mod tests {
             key(KeyCode::Char('R')),
             key(KeyCode::Esc),
         ] {
-            for tab in [Tab::Search, Tab::Installed, Tab::Outdated, Tab::Managers, Tab::Tasks] {
+            for tab in [
+                Tab::Search,
+                Tab::Installed,
+                Tab::Outdated,
+                Tab::Managers,
+                Tab::Tasks,
+            ] {
                 assert!(normal(tab, k).is_some(), "dead global key {k:?} on {tab:?}");
             }
         }
@@ -477,8 +531,14 @@ mod tests {
             map_key(launch, key(KeyCode::Char('v'))),
             Some(Action::InputChar('v'))
         );
-        assert_eq!(map_key(launch, key(KeyCode::Enter)), Some(Action::InputSubmit));
-        assert_eq!(map_key(launch, key(KeyCode::Esc)), Some(Action::InputCancel));
+        assert_eq!(
+            map_key(launch, key(KeyCode::Enter)),
+            Some(Action::InputSubmit)
+        );
+        assert_eq!(
+            map_key(launch, key(KeyCode::Esc)),
+            Some(Action::InputCancel)
+        );
         assert_eq!(map_key(launch, ctrl('c')), Some(Action::CtrlC));
         // And once browsing, the footer's advertised keys all act.
         let browsing = ctx(ModeKind::Normal, Tab::Search);

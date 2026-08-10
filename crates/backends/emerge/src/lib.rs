@@ -168,9 +168,7 @@ impl PackageManager for Manager {
             .require_success()?;
         parse_search(&output.stdout)
             .into_iter()
-            .find(|package| {
-                package.name == name || package.name.rsplit('/').next() == Some(name)
-            })
+            .find(|package| package.name == name || package.name.rsplit('/').next() == Some(name))
             .map(|package| Box::new(package) as Box<dyn Package>)
             .ok_or_else(|| Error::NotFound(name.to_string()))
     }
@@ -194,9 +192,7 @@ impl PackageManager for Manager {
     }
 
     async fn upgrade(&self, packages: &[PackageRequest], ctx: &OpContext) -> Result<()> {
-        let mut cmd = self
-            .mutation(ctx)
-            .args(["--update", "--deep", "--newuse"]);
+        let mut cmd = self.mutation(ctx).args(["--update", "--deep", "--newuse"]);
         cmd = if packages.is_empty() {
             cmd.arg("@world")
         } else {

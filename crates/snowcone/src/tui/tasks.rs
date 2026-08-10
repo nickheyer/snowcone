@@ -43,7 +43,6 @@ impl TaskKind {
             TaskKind::Install | TaskKind::Remove | TaskKind::Upgrade | TaskKind::Refresh
         )
     }
-
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

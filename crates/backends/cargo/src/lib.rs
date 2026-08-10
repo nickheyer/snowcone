@@ -339,7 +339,10 @@ tealdeer v1.6.1 (https://github.com/dbrgn/tealdeer#4b2f6ba1):
         assert_eq!(packages[0].version.as_deref(), Some("0.12.2"));
         assert_eq!(packages[0].origin, None);
         assert_eq!(packages[0].state, InstallState::Installed);
-        assert_eq!(packages[2].origin.as_deref(), Some("/home/nick/src/sccache"));
+        assert_eq!(
+            packages[2].origin.as_deref(),
+            Some("/home/nick/src/sccache")
+        );
         assert_eq!(
             packages[3].origin.as_deref(),
             Some("https://github.com/dbrgn/tealdeer#4b2f6ba1")
@@ -372,7 +375,8 @@ quiet-crate = \"0.1.0\"
     #[test]
     fn search_trailer_with_url_is_skipped() {
         // Old cargos put a search URL (containing `=`) in the trailer.
-        let stdout = "... and 42 crates more (go to https://crates.io/search?q=serde to see more)\n";
+        let stdout =
+            "... and 42 crates more (go to https://crates.io/search?q=serde to see more)\n";
         assert!(parse_search(stdout).is_empty());
     }
 

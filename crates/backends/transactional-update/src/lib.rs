@@ -168,7 +168,11 @@ impl PackageManager for Manager {
     async fn list_installed(&self) -> Result<Vec<Box<dyn Package>>> {
         let output = self
             .rpm_query()?
-            .args(["-qa", "--queryformat", "%{NAME}\t%{VERSION}-%{RELEASE}\t%{ARCH}\n"])
+            .args([
+                "-qa",
+                "--queryformat",
+                "%{NAME}\t%{VERSION}-%{RELEASE}\t%{ARCH}\n",
+            ])
             .capture(&self.elevator, None)
             .await?
             .require_success()?;
@@ -203,7 +207,9 @@ impl PackageManager for Manager {
         // transactional-update has no refresh verb; metadata lives on the
         // writable /var, so plain `zypper refresh` is the honest path.
         let zypper = self.zypper.as_deref().ok_or_else(|| {
-            Error::Other(format!("{ID}: `zypper` not found on PATH to refresh metadata"))
+            Error::Other(format!(
+                "{ID}: `zypper` not found on PATH to refresh metadata"
+            ))
         })?;
         let mut cmd = Cmd::new(zypper).elevated(true);
         if ctx.assume_yes {

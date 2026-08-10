@@ -127,7 +127,13 @@ impl ManagerPool {
                 version: None,
             })
             .collect();
-        Ok(build_plan(operation, group.database, manager, requests, &names))
+        Ok(build_plan(
+            operation,
+            group.database,
+            manager,
+            requests,
+            &names,
+        ))
     }
 
     /// One plan per database for target-less operations (`upgrade`
@@ -295,11 +301,7 @@ mod tests {
         let b = row("bun", "typescript");
         let c = row("npm", "eslint");
         let plan = pool
-            .plan_mutation(
-                Operation::Install,
-                &[&a, &b, &c],
-                &BTreeSet::new(),
-            )
+            .plan_mutation(Operation::Install, &[&a, &b, &c], &BTreeSet::new())
             .unwrap();
         assert_eq!(plan.database, "node");
         assert_eq!(plan.manager_id, "npm"); // preference order: npm over bun

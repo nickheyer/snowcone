@@ -146,7 +146,9 @@ impl PackageManager for Manager {
     }
 
     async fn install(&self, packages: &[PackageRequest], ctx: &OpContext) -> Result<()> {
-        let cmd = self.mutation("resolve", ctx).args(packages.iter().map(spec));
+        let cmd = self
+            .mutation("resolve", ctx)
+            .args(packages.iter().map(spec));
         self.run(cmd, ctx).await
     }
 
@@ -214,7 +216,8 @@ impl PackageManager for Manager {
         let cmd = if packages.is_empty() {
             self.mutation("resolve", ctx).arg("world")
         } else {
-            self.mutation("resolve", ctx).args(packages.iter().map(spec))
+            self.mutation("resolve", ctx)
+                .args(packages.iter().map(spec))
         };
         self.run(cmd, ctx).await
     }
@@ -400,7 +403,10 @@ fn parse_show(stdout: &str) -> Option<CavePackage> {
             } else if package.name != name {
                 continue;
             }
-            if repo.as_deref().is_some_and(|repo| repo.contains("installed")) {
+            if repo
+                .as_deref()
+                .is_some_and(|repo| repo.contains("installed"))
+            {
                 installed = version.or(installed.take());
             } else {
                 if version.is_some() {
@@ -452,8 +458,7 @@ fn parse_show(stdout: &str) -> Option<CavePackage> {
 /// whose id token is followed by `old -> new` or `… replacing old`.
 /// Best-effort - cave's resolution display is not a stable format.
 fn parse_resolution(stdout: &str) -> Vec<CavePackage> {
-    let looks_like_version =
-        |token: &str| token.chars().next().is_some_and(|c| c.is_ascii_digit());
+    let looks_like_version = |token: &str| token.chars().next().is_some_and(|c| c.is_ascii_digit());
     let mut packages = Vec::new();
     for line in stdout.lines() {
         let tokens: Vec<&str> = line.split_whitespace().collect();

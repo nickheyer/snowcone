@@ -227,9 +227,7 @@ impl PackageManager for Manager {
 
     async fn remove(&self, packages: &[PackageRequest], ctx: &OpContext) -> Result<()> {
         if ctx.dry_run {
-            return Err(Error::Other(format!(
-                "{ID}: uninstall has no dry-run mode"
-            )));
+            return Err(Error::Other(format!("{ID}: uninstall has no dry-run mode")));
         }
         for package in packages {
             let cmd = self
@@ -455,7 +453,10 @@ Summary: Another formatter.
             Some("Command line tool for formatting code files based on .editorconfig settings.")
         );
         assert_eq!(packages[1].name, "dotnet-format-lite");
-        assert_eq!(packages[1].description.as_deref(), Some("Another formatter."));
+        assert_eq!(
+            packages[1].description.as_deref(),
+            Some("Another formatter.")
+        );
         assert_eq!(packages[1].state, InstallState::Available);
     }
 }

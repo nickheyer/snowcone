@@ -143,7 +143,9 @@ impl PackageManager for Manager {
     }
 
     async fn install(&self, packages: &[PackageRequest], ctx: &OpContext) -> Result<()> {
-        let cmd = self.mutation("install", ctx)?.args(packages.iter().map(spec));
+        let cmd = self
+            .mutation("install", ctx)?
+            .args(packages.iter().map(spec));
         self.run(cmd, ctx).await
     }
 
@@ -226,7 +228,9 @@ impl PackageManager for Manager {
     }
 
     async fn upgrade(&self, packages: &[PackageRequest], ctx: &OpContext) -> Result<()> {
-        let cmd = self.mutation("upgrade", ctx)?.args(packages.iter().map(spec));
+        let cmd = self
+            .mutation("upgrade", ctx)?
+            .args(packages.iter().map(spec));
         self.run(cmd, ctx).await
     }
 

@@ -185,7 +185,11 @@ impl PackageManager for Manager {
     async fn list_installed(&self) -> Result<Vec<Box<dyn Package>>> {
         let output = self
             .query(&self.rpm_program)
-            .args(["-qa", "--queryformat", "%{NAME}\\t%{VERSION}-%{RELEASE}\\t%{ARCH}\\n"])
+            .args([
+                "-qa",
+                "--queryformat",
+                "%{NAME}\\t%{VERSION}-%{RELEASE}\\t%{ARCH}\\n",
+            ])
             .capture(&self.elevator, None)
             .await?
             .require_success()?;
@@ -202,7 +206,8 @@ impl PackageManager for Manager {
         if !show.success() {
             return Err(Error::NotFound(name.to_string()));
         }
-        let mut package = parse_show(&show.stdout).ok_or_else(|| Error::NotFound(name.to_string()))?;
+        let mut package =
+            parse_show(&show.stdout).ok_or_else(|| Error::NotFound(name.to_string()))?;
         // `apt-cache show` only describes the repository side; the rpmdb
         // says whether (and at which version) it is installed.
         if let Some(installed) = self.installed_version(&package.name).await? {
@@ -238,7 +243,8 @@ impl PackageManager for Manager {
         let cmd = if packages.is_empty() {
             self.mutation("dist-upgrade", ctx)
         } else {
-            self.mutation("install", ctx).args(packages.iter().map(spec))
+            self.mutation("install", ctx)
+                .args(packages.iter().map(spec))
         };
         self.run(cmd, ctx).await
     }

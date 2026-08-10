@@ -405,7 +405,10 @@ Possibly confusing dependencies found:
     #[test]
     fn matches_bare_and_qualified_names() {
         assert!(matches_name("org.clojure/core.async", "core.async"));
-        assert!(matches_name("org.clojure/core.async", "org.clojure/core.async"));
+        assert!(matches_name(
+            "org.clojure/core.async",
+            "org.clojure/core.async"
+        ));
         assert!(matches_name("clj-http", "clj-http"));
         assert!(!matches_name("core.async", "org.clojure/core.async"));
         assert!(!matches_name("org.clojure/core.async", "async"));

@@ -68,7 +68,9 @@ impl Manager {
     /// Read invocation with a stable locale and `-q`, so only the asked-for
     /// value reaches stdout.
     fn query(&self) -> Cmd {
-        Cmd::new(&self.program).args(["-B", "-q"]).env("LC_ALL", "C")
+        Cmd::new(&self.program)
+            .args(["-B", "-q"])
+            .env("LC_ALL", "C")
     }
 
     /// CLI passthrough when no event consumer is attached, captured and
@@ -394,7 +396,10 @@ mod tests {
             ))
         );
         // A pom needs at least group/artifact/version above it.
-        assert_eq!(coordinate_from_pom(root, &root.join("junit/4.13.2/j.pom")), None);
+        assert_eq!(
+            coordinate_from_pom(root, &root.join("junit/4.13.2/j.pom")),
+            None
+        );
     }
 
     #[test]

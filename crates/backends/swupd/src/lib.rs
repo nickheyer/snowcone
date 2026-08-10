@@ -341,7 +341,8 @@ fn parse_bundle_info(stdout: &str) -> Option<SwupdPackage> {
             };
         } else if text.starts_with("There is an update for bundle") {
             update_available = true;
-        } else if let Some(version) = text.strip_prefix("- Installed bundle last updated in version:")
+        } else if let Some(version) =
+            text.strip_prefix("- Installed bundle last updated in version:")
         {
             package.version = Some(version.trim().to_string());
         } else if let Some(version) = text

@@ -331,7 +331,10 @@ CFGS1=/opt/easybuild/easyconfigs
                 Some("4.6.1-gompi-2023b".to_string())
             )
         );
-        assert_eq!(split_easyconfig("EasyBuild"), ("EasyBuild".to_string(), None));
+        assert_eq!(
+            split_easyconfig("EasyBuild"),
+            ("EasyBuild".to_string(), None)
+        );
     }
 
     #[test]

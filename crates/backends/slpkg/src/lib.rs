@@ -169,8 +169,8 @@ impl PackageManager for Manager {
     /// Repository-side metadata printing is version-unstable, so info reads
     /// the database entry of an installed package instead.
     async fn info(&self, name: &str) -> Result<Box<dyn Package>> {
-        let (path, mut package) = find_entry(database_dir(), name)?
-            .ok_or_else(|| Error::NotFound(name.to_string()))?;
+        let (path, mut package) =
+            find_entry(database_dir(), name)?.ok_or_else(|| Error::NotFound(name.to_string()))?;
         let details = parse_entry_file(&std::fs::read_to_string(path)?);
         package.description = details.description;
         package.download_size = details.download_size;

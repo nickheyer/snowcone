@@ -212,7 +212,8 @@ impl PackageManager for Manager {
             // upgrade can cross the caret range recorded at install time
             // (and carries pins as `name:version`); `update` would stay
             // inside it.
-            self.mutation("require", ctx).args(packages.iter().map(spec))
+            self.mutation("require", ctx)
+                .args(packages.iter().map(spec))
         };
         self.run(cmd, ctx).await
     }

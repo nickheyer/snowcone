@@ -213,7 +213,8 @@ impl PackageManager for Manager {
         // `install`, which moves an installed package to the named version.
         let pinned = packages.iter().any(|package| package.version.is_some());
         let cmd = if pinned {
-            self.mutation("install", ctx).args(packages.iter().map(spec))
+            self.mutation("install", ctx)
+                .args(packages.iter().map(spec))
         } else {
             self.mutation("update", ctx)
                 .args(packages.iter().map(|package| package.name.as_str()))

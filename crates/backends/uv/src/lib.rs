@@ -173,10 +173,13 @@ impl PackageManager for Manager {
             return Err(self.no_dry_run("upgrade"));
         }
         if packages.is_empty() {
-            return self.run(self.cmd().args(["tool", "upgrade", "--all"]), ctx).await;
+            return self
+                .run(self.cmd().args(["tool", "upgrade", "--all"]), ctx)
+                .await;
         }
-        let (pinned, latest): (Vec<&PackageRequest>, Vec<&PackageRequest>) =
-            packages.iter().partition(|package| package.version.is_some());
+        let (pinned, latest): (Vec<&PackageRequest>, Vec<&PackageRequest>) = packages
+            .iter()
+            .partition(|package| package.version.is_some());
         if !latest.is_empty() {
             let cmd = self
                 .cmd()

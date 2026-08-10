@@ -977,6 +977,7 @@ name = "snowcone-conan"
 version = "0.0.4"
 dependencies = [
  "async-trait",
+ "serde_json",
  "snowcone-core",
 ]
 
@@ -1121,6 +1122,7 @@ version = "0.0.4"
 dependencies = [
  "async-trait",
  "snowcone-core",
+ "toml",
 ]
 
 [[package]]
@@ -1184,6 +1186,7 @@ name = "snowcone-helm"
 version = "0.0.4"
 dependencies = [
  "async-trait",
+ "serde_json",
  "snowcone-core",
 ]
 
@@ -1658,6 +1661,7 @@ name = "snowcone-swiftpm"
 version = "0.0.4"
 dependencies = [
  "async-trait",
+ "serde_json",
  "snowcone-core",
 ]
 

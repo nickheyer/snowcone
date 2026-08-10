@@ -186,7 +186,8 @@ impl PackageManager for Manager {
         if !show.success() {
             return Err(Error::NotFound(name.to_string()));
         }
-        let mut package = parse_show(&show.stdout).ok_or_else(|| Error::NotFound(name.to_string()))?;
+        let mut package =
+            parse_show(&show.stdout).ok_or_else(|| Error::NotFound(name.to_string()))?;
         // `Installed: yes` only covers the shown candidate; one list probe
         // fills in the actually-installed version and upgradability.
         if let Some(listed) = self
@@ -233,7 +234,8 @@ impl PackageManager for Manager {
         } else {
             // `nala upgrade` takes no package arguments; `install` brings
             // an installed package to its candidate version.
-            self.mutation("install", ctx).args(packages.iter().map(spec))
+            self.mutation("install", ctx)
+                .args(packages.iter().map(spec))
         };
         self.run(cmd, ctx).await
     }
@@ -297,7 +299,8 @@ fn parse_list(stdout: &str) -> Vec<NalaPackage> {
             }
             continue;
         }
-        if line.starts_with(char::is_whitespace) || line.starts_with('│') || line.starts_with('|') {
+        if line.starts_with(char::is_whitespace) || line.starts_with('│') || line.starts_with('|')
+        {
             continue;
         }
         let mut parts = line.split_whitespace();
@@ -328,9 +331,7 @@ fn parse_show(stdout: &str) -> Option<NalaPackage> {
     let mut in_depends = false;
     for line in stdout.lines() {
         if line.starts_with(char::is_whitespace) {
-            if in_depends
-                && let Some(dep) = line.split_whitespace().next()
-            {
+            if in_depends && let Some(dep) = line.split_whitespace().next() {
                 package
                     .dependencies
                     .get_or_insert_with(Vec::new)

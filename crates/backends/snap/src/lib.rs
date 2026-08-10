@@ -530,7 +530,10 @@ installed:          2.10                (38) 98kB -
         assert_eq!(package.latest_version.as_deref(), Some("2.12"));
         assert_eq!(package.state, InstallState::Upgradable);
         assert_eq!(package.origin.as_deref(), Some("latest/stable"));
-        assert_eq!(package.homepage.as_deref(), Some("https://snapcraft.io/hello"));
+        assert_eq!(
+            package.homepage.as_deref(),
+            Some("https://snapcraft.io/hello")
+        );
         assert_eq!(package.license.as_deref(), Some("GPL-3.0"));
         assert_eq!(
             package.description.as_deref(),

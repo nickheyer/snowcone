@@ -60,12 +60,7 @@ fn draw_query_bar(frame: &mut Frame, app: &App, area: Rect) {
     let mut title = if app.search.restrict.is_empty() {
         String::from(" Search (/) ")
     } else {
-        let only: Vec<&str> = app
-            .search
-            .restrict
-            .iter()
-            .map(String::as_str)
-            .collect();
+        let only: Vec<&str> = app.search.restrict.iter().map(String::as_str).collect();
         format!(" Search (/) - only {} ", only.join(", "))
     };
     if app.search.in_flight.is_some() {
@@ -143,8 +138,7 @@ fn draw_results(frame: &mut Frame, app: &mut App, area: Rect) {
                 Cell::from(package.version.clone().unwrap_or_else(|| "-".to_string())),
                 Cell::from(ui::state_span(package.state)),
                 Cell::from(
-                    Span::from(package.description.clone().unwrap_or_default())
-                        .fg(Color::DarkGray),
+                    Span::from(package.description.clone().unwrap_or_default()).fg(Color::DarkGray),
                 ),
             ])
         })

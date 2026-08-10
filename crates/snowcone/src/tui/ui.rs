@@ -112,10 +112,8 @@ fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
         }
         None => {
             let os = app.host.os.pretty_name.as_deref().unwrap_or("unknown");
-            Line::from(
-                Span::from(format!("{os} ({}) ", app.host.arch)).fg(Color::DarkGray),
-            )
-            .right_aligned()
+            Line::from(Span::from(format!("{os} ({}) ", app.host.arch)).fg(Color::DarkGray))
+                .right_aligned()
         }
     };
     // The status gets the room it needs (up to ~2/3 of the row) so
@@ -238,7 +236,11 @@ pub fn draw_detail(frame: &mut Frame, app: &App, tab: &Tab, area: Rect) {
         pick(|summary| summary.homepage.clone()),
         &mut lines,
     );
-    field("license", pick(|summary| summary.license.clone()), &mut lines);
+    field(
+        "license",
+        pick(|summary| summary.license.clone()),
+        &mut lines,
+    );
     field("origin", pick(|summary| summary.origin.clone()), &mut lines);
     field(
         "architecture",

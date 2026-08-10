@@ -195,7 +195,8 @@ impl PackageManager for Manager {
             let installed = Some(installed).filter(|version| !version.is_empty());
             package.state = InstallState::Installed;
             if installed.is_some() && installed != package.version {
-                if let (Some(latest), Some(current)) = (package.version.as_deref(), installed.as_deref())
+                if let (Some(latest), Some(current)) =
+                    (package.version.as_deref(), installed.as_deref())
                     && version_newer(latest, current)
                 {
                     package.state = InstallState::Upgradable;
@@ -479,7 +480,9 @@ relevance: 10
         assert_eq!(packages[0].version.as_deref(), Some("14.1.0"));
         assert_eq!(
             packages[0].description.as_deref(),
-            Some("Line-oriented search tool that respects your gitignore and searches compressed files")
+            Some(
+                "Line-oriented search tool that respects your gitignore and searches compressed files"
+            )
         );
         assert_eq!(packages[0].license.as_deref(), Some("Unlicense, Expat"));
         assert_eq!(

@@ -104,12 +104,11 @@ impl Manager {
         if output.stdout.trim().is_empty() {
             return Ok(Vec::new());
         }
-        let json: Value = serde_json::from_str(output.stdout.trim()).map_err(|error| {
-            Error::Parse {
+        let json: Value =
+            serde_json::from_str(output.stdout.trim()).map_err(|error| Error::Parse {
                 what: format!("{ID} search output"),
                 detail: error.to_string(),
-            }
-        })?;
+            })?;
         Ok(parse_search(&json, state))
     }
 }

@@ -169,7 +169,8 @@ impl PackageManager for Manager {
             return Err(self.no_dry_run("install"));
         }
         for package in packages {
-            self.run(self.cmd().arg("-i").arg(&package.name), ctx).await?;
+            self.run(self.cmd().arg("-i").arg(&package.name), ctx)
+                .await?;
         }
         Ok(())
     }
@@ -182,7 +183,8 @@ impl PackageManager for Manager {
         // `-R` skips AM's own confirmation prompt, `-r` keeps it.
         let flag = if ctx.assume_yes { "-R" } else { "-r" };
         for package in packages {
-            self.run(self.cmd().arg(flag).arg(&package.name), ctx).await?;
+            self.run(self.cmd().arg(flag).arg(&package.name), ctx)
+                .await?;
         }
         Ok(())
     }
@@ -230,7 +232,8 @@ impl PackageManager for Manager {
             return self.run(self.cmd().arg("-u"), ctx).await;
         }
         for package in packages {
-            self.run(self.cmd().arg("-u").arg(&package.name), ctx).await?;
+            self.run(self.cmd().arg("-u").arg(&package.name), ctx)
+                .await?;
         }
         Ok(())
     }

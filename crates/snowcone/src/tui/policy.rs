@@ -74,7 +74,10 @@ mod tests {
         snowcone_backends::register_all(&mut registry);
         for (id, _) in POLICY {
             assert!(
-                registry.factories().iter().any(|factory| factory.id() == *id),
+                registry
+                    .factories()
+                    .iter()
+                    .any(|factory| factory.id() == *id),
                 "policy names unknown backend: {id}"
             );
         }

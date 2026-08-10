@@ -165,7 +165,11 @@ impl PackageManager for Manager {
         })?;
         // `show` describes the container's repository side; the installed
         // listing fills in state and versions.
-        let list = self.query().arg("list").capture(&self.elevator, None).await?;
+        let list = self
+            .query()
+            .arg("list")
+            .capture(&self.elevator, None)
+            .await?;
         if let Some(listed) = parse_list(&list.stdout)
             .into_iter()
             .find(|listed| listed.name == package.name)

@@ -168,7 +168,9 @@ impl PackageManager for Manager {
     }
 
     async fn install(&self, packages: &[PackageRequest], ctx: &OpContext) -> Result<()> {
-        let cmd = self.mutation("install", ctx).args(packages.iter().map(spec));
+        let cmd = self
+            .mutation("install", ctx)
+            .args(packages.iter().map(spec));
         self.run(cmd, ctx).await
     }
 
@@ -219,7 +221,9 @@ impl PackageManager for Manager {
 
     async fn upgrade(&self, packages: &[PackageRequest], ctx: &OpContext) -> Result<()> {
         if packages.is_empty() {
-            return self.run(self.mutation("update", ctx).arg("--all"), ctx).await;
+            return self
+                .run(self.mutation("update", ctx).arg("--all"), ctx)
+                .await;
         }
         // Moving a package to a pinned version is `install name=ver` in the
         // conda family; `update` only moves to the newest.
@@ -228,7 +232,9 @@ impl PackageManager for Manager {
         } else {
             "update"
         };
-        let cmd = self.mutation(subcommand, ctx).args(packages.iter().map(spec));
+        let cmd = self
+            .mutation(subcommand, ctx)
+            .args(packages.iter().map(spec));
         self.run(cmd, ctx).await
     }
 
@@ -466,7 +472,10 @@ mod tests {
         assert_eq!(packages[0].name, "ripgrep");
         assert_eq!(packages[0].version.as_deref(), Some("14.1.1"));
         assert_eq!(packages[0].download_size, Some(1642417));
-        assert_eq!(packages[0].dependencies, Some(vec!["libgcc-ng".to_string()]));
+        assert_eq!(
+            packages[0].dependencies,
+            Some(vec!["libgcc-ng".to_string()])
+        );
         assert_eq!(packages[0].state, InstallState::Available);
     }
 

@@ -133,9 +133,7 @@ impl PackageManager for Manager {
         self.declared_dependencies()
             .await?
             .into_iter()
-            .find(|package| {
-                package.name == name || package.name.split(':').nth(1) == Some(name)
-            })
+            .find(|package| package.name == name || package.name.split(':').nth(1) == Some(name))
             .map(|package| Box::new(package) as Box<dyn Package>)
             .ok_or_else(|| Error::NotFound(name.to_string()))
     }
@@ -260,11 +258,17 @@ mod tests {
     fn splits_modules_and_rejects_noise() {
         assert_eq!(
             split_module("org.typelevel:cats-core:2.10.0"),
-            Some(("org.typelevel:cats-core".to_string(), Some("2.10.0".to_string())))
+            Some((
+                "org.typelevel:cats-core".to_string(),
+                Some("2.10.0".to_string())
+            ))
         );
         assert_eq!(
             split_module("org.scalatest:scalatest:3.2.17:test"),
-            Some(("org.scalatest:scalatest".to_string(), Some("3.2.17".to_string())))
+            Some((
+                "org.scalatest:scalatest".to_string(),
+                Some("3.2.17".to_string())
+            ))
         );
         assert_eq!(split_module("compiling 3 Scala sources"), None);
         assert_eq!(split_module("done: total time"), None);

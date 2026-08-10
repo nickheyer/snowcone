@@ -94,8 +94,7 @@ fn draw_table(frame: &mut Frame, app: &mut App, area: Rect) {
                         .unwrap_or_else(|| "-".to_string()),
                 ),
                 Cell::from(
-                    Span::from(package.description.clone().unwrap_or_default())
-                        .fg(Color::DarkGray),
+                    Span::from(package.description.clone().unwrap_or_default()).fg(Color::DarkGray),
                 ),
             ])
         })

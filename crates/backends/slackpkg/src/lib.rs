@@ -575,7 +575,10 @@ xzgv: xzgv (picture viewer)
         let packages = parse_info(stdout);
         assert_eq!(packages.len(), 2);
         assert_eq!(packages[1].name, "xzgv");
-        assert_eq!(packages[1].description.as_deref(), Some("xzgv (picture viewer)"));
+        assert_eq!(
+            packages[1].description.as_deref(),
+            Some("xzgv (picture viewer)")
+        );
     }
 
     #[test]

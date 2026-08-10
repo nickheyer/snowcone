@@ -164,7 +164,9 @@ impl PackageManager for Manager {
     }
 
     async fn install(&self, packages: &[PackageRequest], ctx: &OpContext) -> Result<()> {
-        let cmd = self.mutation("install", ctx).args(packages.iter().map(spec));
+        let cmd = self
+            .mutation("install", ctx)
+            .args(packages.iter().map(spec));
         self.run(cmd, ctx).await
     }
 
@@ -215,7 +217,9 @@ impl PackageManager for Manager {
 
     async fn upgrade(&self, packages: &[PackageRequest], ctx: &OpContext) -> Result<()> {
         if packages.is_empty() {
-            return self.run(self.mutation("update", ctx).arg("--all"), ctx).await;
+            return self
+                .run(self.mutation("update", ctx).arg("--all"), ctx)
+                .await;
         }
         // Moving a package to a pinned version is `install name=ver` in
         // conda; `update` only moves to the newest.
@@ -224,7 +228,9 @@ impl PackageManager for Manager {
         } else {
             "update"
         };
-        let cmd = self.mutation(subcommand, ctx).args(packages.iter().map(spec));
+        let cmd = self
+            .mutation(subcommand, ctx)
+            .args(packages.iter().map(spec));
         self.run(cmd, ctx).await
     }
 

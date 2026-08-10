@@ -1,9 +1,10 @@
 [package]
 name = "snowcone-swiftpm"
-description = "Swift Package Manager backend for snowcone (stub)."
+description = "Swift Package Manager backend for snowcone."
 version.workspace = true
 edition.workspace = true
 
 [dependencies]
 async-trait.workspace = true
+serde_json.workspace = true
 snowcone-core.workspace = true

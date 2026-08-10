@@ -146,7 +146,8 @@ impl PackageManager for Manager {
             return Err(Error::Other(format!("{ID}: install has no dry-run mode")));
         }
         for package in packages {
-            self.run(self.cmd().arg("-wi").arg(&package.name), ctx).await?;
+            self.run(self.cmd().arg("-wi").arg(&package.name), ctx)
+                .await?;
         }
         Ok(())
     }

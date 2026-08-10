@@ -269,7 +269,11 @@ impl PackageList {
                     .map(|index| index.min(self.visible.len().saturating_sub(1)))
             })
             .filter(|_| !self.visible.is_empty())
-            .or(if self.visible.is_empty() { None } else { Some(0) });
+            .or(if self.visible.is_empty() {
+                None
+            } else {
+                Some(0)
+            });
         self.table.select(next);
     }
 }
@@ -409,7 +413,12 @@ impl ListTab {
 mod tests {
     use super::*;
 
-    fn pkg(manager: &str, name: &str, version: Option<&str>, state: InstallState) -> PackageSummary {
+    fn pkg(
+        manager: &str,
+        name: &str,
+        version: Option<&str>,
+        state: InstallState,
+    ) -> PackageSummary {
         PackageSummary {
             manager: manager.to_string(),
             name: name.to_string(),

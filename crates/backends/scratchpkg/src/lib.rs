@@ -286,9 +286,12 @@ fn parse_search(stdout: &str) -> Vec<ScratchpkgPackage> {
                 return None;
             }
             let mut rest = anchor + 1;
-            let version = tokens.get(rest).map(|token| token.trim_end_matches(':')).filter(
-                |candidate| !candidate.is_empty() && candidate.chars().any(|c| c.is_ascii_digit()),
-            );
+            let version = tokens
+                .get(rest)
+                .map(|token| token.trim_end_matches(':'))
+                .filter(|candidate| {
+                    !candidate.is_empty() && candidate.chars().any(|c| c.is_ascii_digit())
+                });
             if version.is_some() {
                 rest += 1;
             }
@@ -301,11 +304,7 @@ fn parse_search(stdout: &str) -> Vec<ScratchpkgPackage> {
                         .collect::<Vec<_>>()
                         .join(" ")
                 })
-                .map(|tail| {
-                    tail.trim_start_matches(['-', ':'])
-                        .trim_start()
-                        .to_string()
-                })
+                .map(|tail| tail.trim_start_matches(['-', ':']).trim_start().to_string())
                 .filter(|tail| !tail.is_empty());
             Some(ScratchpkgPackage {
                 name: name.to_string(),
@@ -364,7 +363,10 @@ mod tests {
 
     #[test]
     fn strips_ansi_sequences() {
-        assert_eq!(strip_ansi("\u{1b}[1;32mzlib\u{1b}[0m 1.3.1-1"), "zlib 1.3.1-1");
+        assert_eq!(
+            strip_ansi("\u{1b}[1;32mzlib\u{1b}[0m 1.3.1-1"),
+            "zlib 1.3.1-1"
+        );
         assert_eq!(strip_ansi("plain"), "plain");
     }
 

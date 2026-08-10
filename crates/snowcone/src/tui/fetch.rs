@@ -74,7 +74,11 @@ pub fn spawn_search(
                 errors.push(error);
             }
         }
-        let _ = tx.send(TuiMsg::SearchDone { task, epoch, errors });
+        let _ = tx.send(TuiMsg::SearchDone {
+            task,
+            epoch,
+            errors,
+        });
     })
 }
 
@@ -190,9 +194,7 @@ async fn info_for(
         .iter()
         .map(|manager| manager.as_ref())
         .find(|manager| manager.id() == manager_id)
-        .filter(|manager| {
-            !disabled.contains(manager.id()) && manager.supports(Operation::Info)
-        });
+        .filter(|manager| !disabled.contains(manager.id()) && manager.supports(Operation::Info));
     let manager = own
         .or_else(|| elect_enabled(group, Operation::Info, disabled))
         .ok_or_else(|| format!("no enabled manager in [{}] supports info", group.database))?;

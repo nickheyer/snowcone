@@ -54,8 +54,8 @@ fn draw_list(frame: &mut Frame, app: &mut App, area: Rect) {
         .title(format!(" Tasks ({running} running) "))
         .border_style(ui::border_style(!app.tasks_view.output_focused));
 
-    let header = Row::new(["", "TASK", "MANAGER", "ELAPSED"])
-        .style(Style::new().bold().fg(Color::Cyan));
+    let header =
+        Row::new(["", "TASK", "MANAGER", "ELAPSED"]).style(Style::new().bold().fg(Color::Cyan));
     let mut rows = vec![Row::new(vec![
         Cell::from(Span::from("≡").fg(Color::Cyan)),
         Cell::from("snowcone log"),

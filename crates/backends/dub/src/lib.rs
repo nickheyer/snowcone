@@ -371,7 +371,10 @@ Packages present in the system and known to dub:
 
     #[test]
     fn formats_version_pins() {
-        assert_eq!(spec(&PackageRequest::parse("vibe-d@0.10.1")), "vibe-d@0.10.1");
+        assert_eq!(
+            spec(&PackageRequest::parse("vibe-d@0.10.1")),
+            "vibe-d@0.10.1"
+        );
         assert_eq!(spec(&PackageRequest::parse("vibe-d")), "vibe-d");
     }
 }

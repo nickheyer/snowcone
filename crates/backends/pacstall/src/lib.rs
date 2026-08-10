@@ -291,7 +291,10 @@ fn parse_outdated(stdout: &str) -> Vec<PacstallPackage> {
         .filter_map(|line| {
             let (front, versions) = line.split_once(" ( ")?;
             let (name, origin) = front.trim().split_once(" @ ")?;
-            let (current, latest) = versions.trim_end().trim_end_matches(')').split_once(" -> ")?;
+            let (current, latest) = versions
+                .trim_end()
+                .trim_end_matches(')')
+                .split_once(" -> ")?;
             Some(PacstallPackage {
                 name: name.trim().to_string(),
                 version: version(current.trim()),
@@ -327,8 +330,7 @@ fn parse_cache_info(stdout: &str) -> Option<PacstallPackage> {
             "license" => package.license = Some(value.to_string()),
             "remote repo" => package.origin = Some(value.to_string()),
             "dependencies" => {
-                package.dependencies =
-                    Some(value.split_whitespace().map(str::to_string).collect());
+                package.dependencies = Some(value.split_whitespace().map(str::to_string).collect());
             }
             _ => {}
         }

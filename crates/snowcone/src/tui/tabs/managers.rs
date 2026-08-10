@@ -39,8 +39,16 @@ fn draw_table(frame: &mut Frame, app: &mut App, area: Rect) {
         .border_style(ui::border_style(false));
 
     let disabled = app.config.disabled_set();
-    let header = Row::new(["EN", "ID", "KIND", "DATABASE", "PRI", "CAPABILITIES", "DETAIL"])
-        .style(Style::new().bold().fg(Color::Cyan));
+    let header = Row::new([
+        "EN",
+        "ID",
+        "KIND",
+        "DATABASE",
+        "PRI",
+        "CAPABILITIES",
+        "DETAIL",
+    ])
+    .style(Style::new().bold().fg(Color::Cyan));
     let rows: Vec<Row> = app
         .statuses
         .iter()

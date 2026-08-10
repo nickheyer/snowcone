@@ -1,6 +1,6 @@
 [package]
 name = "snowcone-paket"
-description = "Paket backend for snowcone (stub)."
+description = "Paket backend for snowcone."
 version.workspace = true
 edition.workspace = true
 

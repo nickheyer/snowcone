@@ -181,8 +181,9 @@ impl PackageManager for Manager {
         if packages.is_empty() {
             return self.run(self.mutation("update", ctx), ctx).await;
         }
-        let (pinned, constrained): (Vec<&PackageRequest>, Vec<&PackageRequest>) =
-            packages.iter().partition(|package| package.version.is_some());
+        let (pinned, constrained): (Vec<&PackageRequest>, Vec<&PackageRequest>) = packages
+            .iter()
+            .partition(|package| package.version.is_some());
         if !constrained.is_empty() {
             let cmd = self
                 .mutation("update", ctx)

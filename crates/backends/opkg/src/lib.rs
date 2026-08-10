@@ -219,12 +219,16 @@ impl PackageManager for Manager {
                 .map(|package| package.name)
                 .collect()
         } else {
-            packages.iter().map(|package| package.name.clone()).collect()
+            packages
+                .iter()
+                .map(|package| package.name.clone())
+                .collect()
         };
         if names.is_empty() {
             return Ok(());
         }
-        self.run(self.mutation("upgrade", ctx).args(names), ctx).await
+        self.run(self.mutation("upgrade", ctx).args(names), ctx)
+            .await
     }
 
     async fn list_outdated(&self) -> Result<Vec<Box<dyn Package>>> {

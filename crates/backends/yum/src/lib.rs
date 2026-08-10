@@ -139,7 +139,9 @@ impl PackageManager for Manager {
     }
 
     async fn install(&self, packages: &[PackageRequest], ctx: &OpContext) -> Result<()> {
-        let cmd = self.mutation("install", ctx)?.args(packages.iter().map(spec));
+        let cmd = self
+            .mutation("install", ctx)?
+            .args(packages.iter().map(spec));
         self.run(cmd, ctx).await
     }
 
@@ -214,11 +216,14 @@ impl PackageManager for Manager {
         if ctx.dry_run {
             return Err(Error::Other(format!("{ID}: refresh has no dry-run mode")));
         }
-        self.run(self.cmd().arg("makecache").elevated(true), ctx).await
+        self.run(self.cmd().arg("makecache").elevated(true), ctx)
+            .await
     }
 
     async fn upgrade(&self, packages: &[PackageRequest], ctx: &OpContext) -> Result<()> {
-        let cmd = self.mutation("update", ctx)?.args(packages.iter().map(spec));
+        let cmd = self
+            .mutation("update", ctx)?
+            .args(packages.iter().map(spec));
         self.run(cmd, ctx).await
     }
 

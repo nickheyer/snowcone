@@ -146,8 +146,8 @@ impl PackageManager for Manager {
     }
 
     async fn info(&self, name: &str) -> Result<Box<dyn Package>> {
-        let (path, mut package) = find_entry(database_dir(), name)?
-            .ok_or_else(|| Error::NotFound(name.to_string()))?;
+        let (path, mut package) =
+            find_entry(database_dir(), name)?.ok_or_else(|| Error::NotFound(name.to_string()))?;
         let details = parse_entry_file(&std::fs::read_to_string(path)?);
         package.description = details.description;
         package.download_size = details.download_size;

@@ -419,7 +419,10 @@ mod tests {
         )
         .unwrap();
         let packages = parse_layered(&status);
-        let names: Vec<&str> = packages.iter().map(|package| package.name.as_str()).collect();
+        let names: Vec<&str> = packages
+            .iter()
+            .map(|package| package.name.as_str())
+            .collect();
         assert_eq!(names, ["vim", "htop", "distrobox"]);
         assert_eq!(packages[0].state, InstallState::Installed);
     }

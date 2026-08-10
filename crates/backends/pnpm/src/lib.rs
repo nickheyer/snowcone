@@ -185,12 +185,12 @@ impl PackageManager for Manager {
         } else {
             // `add name@latest` upgrades past whatever semver range the
             // original install recorded; `update` would respect it.
-            self.cmd()
-                .args(["add", "-g"])
-                .args(packages.iter().map(|package| match &package.version {
+            self.cmd().args(["add", "-g"]).args(packages.iter().map(
+                |package| match &package.version {
                     Some(version) => format!("{}@{version}", package.name),
                     None => format!("{}@latest", package.name),
-                }))
+                },
+            ))
         };
         self.run(cmd, ctx).await
     }
@@ -326,10 +326,9 @@ mod tests {
 
     #[test]
     fn parses_unwrapped_global_list() {
-        let json: Value = serde_json::from_str(
-            r#"{"dependencies": {"typescript": {"version": "5.5.3"}}}"#,
-        )
-        .unwrap();
+        let json: Value =
+            serde_json::from_str(r#"{"dependencies": {"typescript": {"version": "5.5.3"}}}"#)
+                .unwrap();
         let packages = parse_list(&json);
         assert_eq!(packages.len(), 1);
         assert_eq!(packages[0].name, "typescript");

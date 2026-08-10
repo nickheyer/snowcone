@@ -221,7 +221,10 @@ impl PackageManager for Manager {
         let names: Vec<String> = if packages.is_empty() {
             installed_app_names()
         } else {
-            packages.iter().map(|package| package.name.clone()).collect()
+            packages
+                .iter()
+                .map(|package| package.name.clone())
+                .collect()
         };
         for name in names {
             let mut cmd = self.cmd("update");
@@ -255,7 +258,12 @@ fn app_dirs() -> Vec<PathBuf> {
         .ok()
         .filter(|value| !value.is_empty())
         .unwrap_or_else(|| "/etc/xdg".to_string());
-    dirs.extend(config_dirs.split(':').filter(|dir| !dir.is_empty()).map(PathBuf::from));
+    dirs.extend(
+        config_dirs
+            .split(':')
+            .filter(|dir| !dir.is_empty())
+            .map(PathBuf::from),
+    );
     dirs.into_iter()
         .map(|dir| dir.join("0install.net").join("apps"))
         .collect()

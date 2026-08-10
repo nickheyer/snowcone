@@ -61,9 +61,7 @@ impl ConfirmState {
                         .fg(Color::DarkGray),
                     );
                     if plan.needs_elevation {
-                        lines.push(
-                            Line::from("   will prompt for credentials").fg(Color::Yellow),
-                        );
+                        lines.push(Line::from("   will prompt for credentials").fg(Color::Yellow));
                     }
                 }
                 if plans.len() > SHOWN {
@@ -152,9 +150,5 @@ fn centered(area: Rect, width: u16, height: u16) -> Rect {
 }
 
 fn centered_pct(area: Rect, pct_x: u16, pct_y: u16) -> Rect {
-    centered(
-        area,
-        area.width * pct_x / 100,
-        area.height * pct_y / 100,
-    )
+    centered(area, area.width * pct_x / 100, area.height * pct_y / 100)
 }

@@ -163,7 +163,10 @@ impl PackageManager for Manager {
             .capture(&self.elevator, None)
             .await?
             .require_success()?;
-        Ok(boxed(parse_listing(&output.stdout, InstallState::Installed)))
+        Ok(boxed(parse_listing(
+            &output.stdout,
+            InstallState::Installed,
+        )))
     }
 
     async fn info(&self, name: &str) -> Result<Box<dyn Package>> {
@@ -189,7 +192,10 @@ impl PackageManager for Manager {
             .capture(&self.elevator, None)
             .await?
             .require_success()?;
-        Ok(boxed(parse_listing(&output.stdout, InstallState::Available)))
+        Ok(boxed(parse_listing(
+            &output.stdout,
+            InstallState::Available,
+        )))
     }
 
     async fn refresh(&self, ctx: &OpContext) -> Result<()> {
@@ -502,7 +508,10 @@ Package Size        : 1.72 MB
             package.description.as_deref(),
             Some("Line oriented search tool")
         );
-        assert_eq!(package.installed_size, Some((4.45 * 1024.0 * 1024.0) as u64));
+        assert_eq!(
+            package.installed_size,
+            Some((4.45 * 1024.0 * 1024.0) as u64)
+        );
         assert_eq!(package.download_size, Some((1.72 * 1024.0 * 1024.0) as u64));
     }
 

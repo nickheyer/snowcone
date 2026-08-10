@@ -101,9 +101,8 @@ fn query(program: &Path) -> Cmd {
 /// The suite ships as separate binaries; a missing companion is an
 /// incomplete installation, reported per operation.
 fn companion<'a>(tool: &'a Option<PathBuf>, name: &str) -> Result<&'a PathBuf> {
-    tool.as_ref().ok_or_else(|| {
-        Error::Other(format!("{ID}: companion tool `{name}` not found on PATH"))
-    })
+    tool.as_ref()
+        .ok_or_else(|| Error::Other(format!("{ID}: companion tool `{name}` not found on PATH")))
 }
 
 /// urpmi resolves names against whatever its media carry; there is no
@@ -234,7 +233,8 @@ impl PackageManager for Manager {
             return Err(Error::Other(format!("{ID}: refresh has no dry-run mode")));
         }
         let update = companion(&self.urpmi_update, "urpmi.update")?;
-        self.run(Cmd::new(update).arg("-a").elevated(true), ctx).await
+        self.run(Cmd::new(update).arg("-a").elevated(true), ctx)
+            .await
     }
 
     async fn upgrade(&self, packages: &[PackageRequest], ctx: &OpContext) -> Result<()> {

@@ -15,8 +15,8 @@ use std::path::{Path, PathBuf};
 
 use async_trait::async_trait;
 use snowcone_core::{
-    BackendFactory, Capabilities, Detection, Error, HostInfo, InstallState, ManagerKind,
-    OpContext, Package, PackageManager, PackageRequest, ProgressEvent, Result, find_program,
+    BackendFactory, Capabilities, Detection, Error, HostInfo, InstallState, ManagerKind, OpContext,
+    Package, PackageManager, PackageRequest, ProgressEvent, Result, find_program,
 };
 
 const ID: &str = "ivy";
@@ -52,8 +52,8 @@ struct Manager;
 /// Ivy's default resolution cache; a custom ivysettings relocation is not
 /// visible from outside a build, so the default is all there is to honor.
 fn cache_dir() -> Result<PathBuf> {
-    let home = std::env::var_os("HOME")
-        .ok_or_else(|| Error::Other(format!("{ID}: HOME is not set")))?;
+    let home =
+        std::env::var_os("HOME").ok_or_else(|| Error::Other(format!("{ID}: HOME is not set")))?;
     Ok(PathBuf::from(home).join(".ivy2").join("cache"))
 }
 
@@ -257,7 +257,10 @@ mod tests {
     #[test]
     fn reads_revisions_from_descriptor_names() {
         assert_eq!(revision_from_descriptor("ivy-2.17.2.xml"), Some("2.17.2"));
-        assert_eq!(revision_from_descriptor("ivy-1.0-beta1.xml"), Some("1.0-beta1"));
+        assert_eq!(
+            revision_from_descriptor("ivy-1.0-beta1.xml"),
+            Some("1.0-beta1")
+        );
         assert_eq!(revision_from_descriptor("ivy-2.17.2.xml.original"), None);
         assert_eq!(revision_from_descriptor("ivydata-2.17.2.properties"), None);
         assert_eq!(revision_from_descriptor("commons-lang3-2.17.2.jar"), None);

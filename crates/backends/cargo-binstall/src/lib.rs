@@ -245,7 +245,10 @@ sccache v0.8.1 (/home/nick/src/sccache):
         assert_eq!(packages[0].version.as_deref(), Some("1.10.7"));
         assert_eq!(packages[0].origin, None);
         assert_eq!(packages[0].state, InstallState::Installed);
-        assert_eq!(packages[2].origin.as_deref(), Some("/home/nick/src/sccache"));
+        assert_eq!(
+            packages[2].origin.as_deref(),
+            Some("/home/nick/src/sccache")
+        );
     }
 
     #[test]

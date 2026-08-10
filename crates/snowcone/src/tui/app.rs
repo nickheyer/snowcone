@@ -17,8 +17,8 @@ use super::fetch::{self, ListTarget};
 use super::keys::{self, Action, KeyCtx, ModeKind};
 use super::modal::{ConfirmState, Pending};
 use super::packages::{ListTab, LoadState, PkgKey, key_of};
-use super::pool::ManagerPool;
 use super::policy::ExecMode;
+use super::pool::ManagerPool;
 use super::tabs::managers::ManagersTab;
 use super::tabs::search::SearchTab;
 use super::tabs::tasks::TasksTab;
@@ -178,8 +178,7 @@ pub async fn run(host: HostInfo, registry: Registry) -> anyhow::Result<()> {
 /// SIG_IGN) resets to default across exec, so children keep normal
 /// Ctrl-C behavior.
 fn swallow_sigint() -> anyhow::Result<()> {
-    let mut sigint =
-        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())?;
+    let mut sigint = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())?;
     tokio::spawn(async move {
         loop {
             sigint.recv().await;
@@ -524,8 +523,7 @@ impl App {
             Tab::Tasks => {
                 if self.tasks_view.output_focused {
                     self.tasks_view.follow = false;
-                    self.tasks_view.scroll =
-                        (self.tasks_view.scroll as i64 + delta).max(0) as u16;
+                    self.tasks_view.scroll = (self.tasks_view.scroll as i64 + delta).max(0) as u16;
                 } else {
                     let len = self.tasks.tasks().len() + 1;
                     bump(&mut self.tasks_view.table, len, delta);
@@ -543,8 +541,7 @@ impl App {
             }
             Tab::Tasks if self.tasks_view.output_focused => {
                 self.tasks_view.follow = false;
-                self.tasks_view.scroll =
-                    (self.tasks_view.scroll as i64 + delta).max(0) as u16;
+                self.tasks_view.scroll = (self.tasks_view.scroll as i64 + delta).max(0) as u16;
             }
             _ => self.move_selection(delta.signum()),
         }
@@ -742,7 +739,9 @@ impl App {
         self.search.last_query = raw.clone();
         self.search.restrict = restrict.clone();
         let epoch = self.search.epoch;
-        let task = self.tasks.begin(TaskKind::Search, format!("search '{raw}'"));
+        let task = self
+            .tasks
+            .begin(TaskKind::Search, format!("search '{raw}'"));
         let handle = fetch::spawn_search(
             Arc::clone(&self.pool.groups),
             self.config.disabled_set(),
@@ -860,11 +859,9 @@ impl App {
             });
             match guard {
                 Some(message) => Err(message),
-                None => self.pool.plan_mutation(
-                    operation,
-                    &targets,
-                    &self.config.disabled_set(),
-                ),
+                None => self
+                    .pool
+                    .plan_mutation(operation, &targets, &self.config.disabled_set()),
             }
         };
         match planned {

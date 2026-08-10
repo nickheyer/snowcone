@@ -129,9 +129,7 @@ impl PackageManager for Manager {
         self.project_dependencies()
             .await?
             .into_iter()
-            .find(|package| {
-                package.name == name || package.name.split(':').nth(1) == Some(name)
-            })
+            .find(|package| package.name == name || package.name.split(':').nth(1) == Some(name))
             .map(|package| Box::new(package) as Box<dyn Package>)
             .ok_or_else(|| Error::NotFound(name.to_string()))
     }
@@ -270,11 +268,17 @@ runtimeClasspath - Runtime classpath of source set 'main'.
     fn splits_coordinates() {
         assert_eq!(
             split_coordinate("org.slf4j:slf4j-api:2.0.12", None),
-            Some(("org.slf4j:slf4j-api".to_string(), Some("2.0.12".to_string())))
+            Some((
+                "org.slf4j:slf4j-api".to_string(),
+                Some("2.0.12".to_string())
+            ))
         );
         assert_eq!(
             split_coordinate("org.slf4j:slf4j-api", Some("2.0.12")),
-            Some(("org.slf4j:slf4j-api".to_string(), Some("2.0.12".to_string())))
+            Some((
+                "org.slf4j:slf4j-api".to_string(),
+                Some("2.0.12".to_string())
+            ))
         );
         assert_eq!(split_coordinate("slf4j-api", None), None);
     }

@@ -455,7 +455,10 @@ fd-9.0.0             Simple, fast alternative to find
     #[test]
     fn joins_outdated_with_installed_versions() {
         let search = parse_search("ripgrep-14.1.0 <  Line oriented search tool\n");
-        let installed = parse_listing("ripgrep-13.0.0  Line oriented search tool\n", InstallState::Installed);
+        let installed = parse_listing(
+            "ripgrep-13.0.0  Line oriented search tool\n",
+            InstallState::Installed,
+        );
         let outdated = outdated_from(search, installed);
         assert_eq!(outdated.len(), 1);
         assert_eq!(outdated[0].version.as_deref(), Some("13.0.0"));

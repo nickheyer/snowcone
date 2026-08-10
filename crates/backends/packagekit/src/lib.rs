@@ -390,15 +390,13 @@ fn parse_details(stdout: &str) -> Option<PackagekitPackage> {
                     _ => {}
                 }
             }
-            None if in_description && !trimmed.is_empty() => {
-                match &mut package.description {
-                    Some(description) => {
-                        description.push(' ');
-                        description.push_str(trimmed);
-                    }
-                    None => package.description = Some(trimmed.to_string()),
+            None if in_description && !trimmed.is_empty() => match &mut package.description {
+                Some(description) => {
+                    description.push(' ');
+                    description.push_str(trimmed);
                 }
-            }
+                None => package.description = Some(trimmed.to_string()),
+            },
             None => {}
         }
     }

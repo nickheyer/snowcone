@@ -78,10 +78,7 @@ impl Drop for InputReader {
     }
 }
 
-fn reader_loop(
-    tx: mpsc::UnboundedSender<crossterm::event::Event>,
-    shared: Arc<Shared>,
-) {
+fn reader_loop(tx: mpsc::UnboundedSender<crossterm::event::Event>, shared: Arc<Shared>) {
     loop {
         {
             let mut state = shared.state.lock().unwrap();

@@ -227,7 +227,8 @@ impl PackageManager for Manager {
                  which was not found on PATH"
             )));
         };
-        self.run(Cmd::new(ports).arg("-u").elevated(true), ctx).await
+        self.run(Cmd::new(ports).arg("-u").elevated(true), ctx)
+            .await
     }
 
     async fn upgrade(&self, packages: &[PackageRequest], ctx: &OpContext) -> Result<()> {

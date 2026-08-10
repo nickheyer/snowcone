@@ -158,7 +158,10 @@ impl PackageManager for Manager {
             .capture(&self.elevator, None)
             .await?
             .require_success()?;
-        Ok(boxed(parse_gem_lines(&output.stdout, InstallState::Installed)))
+        Ok(boxed(parse_gem_lines(
+            &output.stdout,
+            InstallState::Installed,
+        )))
     }
 
     async fn info(&self, name: &str) -> Result<Box<dyn Package>> {
@@ -204,7 +207,10 @@ impl PackageManager for Manager {
             .capture(&self.elevator, None)
             .await?
             .require_success()?;
-        Ok(boxed(parse_gem_lines(&output.stdout, InstallState::Available)))
+        Ok(boxed(parse_gem_lines(
+            &output.stdout,
+            InstallState::Available,
+        )))
     }
 
     async fn upgrade(&self, packages: &[PackageRequest], ctx: &OpContext) -> Result<()> {

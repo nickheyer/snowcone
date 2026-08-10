@@ -362,6 +362,8 @@ your current directory for a regex pattern. Note: the binary is named rg.
     #[test]
     fn rejects_version_pins() {
         assert!(reject_pins(&[PackageRequest::parse("ripgrep@14.1.0")]).is_err());
-        assert!(reject_pins(&[PackageRequest::parse("./ripgrep-14.1.0-1.fc40.x86_64.rpm")]).is_ok());
+        assert!(
+            reject_pins(&[PackageRequest::parse("./ripgrep-14.1.0-1.fc40.x86_64.rpm")]).is_ok()
+        );
     }
 }

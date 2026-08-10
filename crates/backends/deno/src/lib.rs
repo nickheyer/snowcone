@@ -189,11 +189,8 @@ impl PackageManager for Manager {
             return Err(self.no_dry_run("remove"));
         }
         for package in packages {
-            self.run(
-                self.cmd().args(["uninstall", "-g"]).arg(&package.name),
-                ctx,
-            )
-            .await?;
+            self.run(self.cmd().args(["uninstall", "-g"]).arg(&package.name), ctx)
+                .await?;
         }
         Ok(())
     }

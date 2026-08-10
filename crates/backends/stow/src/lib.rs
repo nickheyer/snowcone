@@ -243,7 +243,11 @@ fn summarize_entries(entries: &[String]) -> String {
     if entries.len() > SHOWN {
         shown.push_str(", …");
     }
-    let noun = if entries.len() == 1 { "entry" } else { "entries" };
+    let noun = if entries.len() == 1 {
+        "entry"
+    } else {
+        "entries"
+    };
     format!("{} top-level {noun}: {shown}", entries.len())
 }
 
@@ -289,7 +293,10 @@ mod tests {
     #[test]
     fn listing_filters_hidden_entries_and_sorts() {
         let packages = packages_from_entries(names(&["zsh", ".git", "emacs", ".stow"]));
-        let listed: Vec<&str> = packages.iter().map(|package| package.name.as_str()).collect();
+        let listed: Vec<&str> = packages
+            .iter()
+            .map(|package| package.name.as_str())
+            .collect();
         assert_eq!(listed, vec!["emacs", "zsh"]);
         assert_eq!(packages[0].state, InstallState::Installed);
     }
@@ -309,9 +316,7 @@ mod tests {
 
     #[test]
     fn summarizes_long_listings_with_an_ellipsis() {
-        let entries = names(&[
-            "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l",
-        ]);
+        let entries = names(&["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l"]);
         let summary = summarize_entries(&entries);
         assert!(summary.starts_with("12 top-level entries: a, b,"));
         assert!(summary.ends_with(", …"));

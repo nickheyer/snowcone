@@ -27,7 +27,10 @@ mod tests {
     fn exact_beats_prefix_beats_substring_beats_rest() {
         let mut names = vec!["neovim-git", "vim", "vim-airline", "gvim", "emacs"];
         names.sort_by_key(|name| rank(name, "vim"));
-        assert_eq!(names, vec!["vim", "vim-airline", "gvim", "neovim-git", "emacs"]);
+        assert_eq!(
+            names,
+            vec!["vim", "vim-airline", "gvim", "neovim-git", "emacs"]
+        );
     }
 
     #[test]

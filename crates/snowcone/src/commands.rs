@@ -6,9 +6,8 @@ use std::collections::HashMap;
 use anyhow::bail;
 use serde::Serialize;
 use snowcone_core::{
-    DatabaseGroup, Detection, ElevationSession, Elevator, Error, HostInfo, InstallState,
-    OpContext, Operation, PackageManager, PackageRequest, PackageSummary, Registry,
-    group_by_database,
+    DatabaseGroup, Detection, ElevationSession, Elevator, Error, HostInfo, InstallState, OpContext,
+    Operation, PackageManager, PackageRequest, PackageSummary, Registry, group_by_database,
 };
 
 use crate::{output, picker, relevance};
@@ -196,14 +195,12 @@ impl Runner {
     ) -> anyhow::Result<Vec<(&'a dyn PackageManager, Vec<PackageRequest>)>> {
         let elected = self.elect(groups, operation)?;
         let mut batches: Vec<(&'a dyn PackageManager, Vec<PackageRequest>)> = Vec::new();
-        let mut assign = |manager: &'a dyn PackageManager, request: PackageRequest| {
-            match batches
-                .iter_mut()
-                .find(|(assigned, _)| assigned.id() == manager.id())
-            {
-                Some((_, list)) => list.push(request),
-                None => batches.push((manager, vec![request])),
-            }
+        let mut assign = |manager: &'a dyn PackageManager, request: PackageRequest| match batches
+            .iter_mut()
+            .find(|(assigned, _)| assigned.id() == manager.id())
+        {
+            Some((_, list)) => list.push(request),
+            None => batches.push((manager, vec![request])),
         };
         // One capable manager (usually an explicit --manager): nothing to
         // resolve, no probes.
@@ -254,8 +251,7 @@ impl Runner {
                         request.name,
                         candidates.len()
                     );
-                    let choice =
-                        picker::pick(headline, &summaries, self.op_ctx.assume_yes).await?;
+                    let choice = picker::pick(headline, &summaries, self.op_ctx.assume_yes).await?;
                     candidates[choice].0
                 }
             };

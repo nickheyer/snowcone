@@ -142,7 +142,8 @@ impl PackageManager for Manager {
             // requirements without touching the system.
             return self.run(self.cmd().arg("simulate").args(names), ctx).await;
         }
-        self.run(self.mutation("install", ctx).args(names), ctx).await
+        self.run(self.mutation("install", ctx).args(names), ctx)
+            .await
     }
 
     async fn remove(&self, packages: &[PackageRequest], ctx: &OpContext) -> Result<()> {
@@ -236,7 +237,8 @@ impl PackageManager for Manager {
         if ctx.dry_run {
             return self.run(self.cmd().arg("simulate").args(names), ctx).await;
         }
-        self.run(self.mutation("install", ctx).args(names), ctx).await
+        self.run(self.mutation("install", ctx).args(names), ctx)
+            .await
     }
 
     async fn list_outdated(&self) -> Result<Vec<Box<dyn Package>>> {

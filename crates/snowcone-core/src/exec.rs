@@ -51,9 +51,7 @@ impl Elevator {
     ///   the active agent; there is no user-warmable cache.
     fn caches_credentials(&self) -> bool {
         match self {
-            Elevator::Helper(helper) => {
-                helper.file_name().is_some_and(|name| name == "sudo")
-            }
+            Elevator::Helper(helper) => helper.file_name().is_some_and(|name| name == "sudo"),
             Elevator::NotNeeded | Elevator::Unavailable => false,
         }
     }
