@@ -1,7 +1,13 @@
 //! bauh backend for snowcone.
 //!
-//! Stub: discovery, capabilities, and database membership are wired;
-//! the operations themselves are not implemented yet.
+//! bauh is a graphical manager for flatpak, snap, AUR, AppImage and web
+//! apps; its command line only launches or configures the GUI itself
+//! (`--tray`, `--settings`, `--reset`) and documents no non-interactive
+//! verbs for installing, removing, listing, searching or upgrading
+//! packages. Nothing here is scriptable, and faking success would be worse
+//! than saying so: every core operation returns an error pointing at the
+//! GUI, and the stub's SEARCH and UPGRADE capabilities are dropped because
+//! the CLI verbs simply do not exist.
 
 use async_trait::async_trait;
 use snowcone_core::{
@@ -40,8 +46,10 @@ impl BackendFactory for Factory {
 struct Manager;
 
 impl Manager {
-    fn todo(&self, what: &str) -> Error {
-        Error::Other(format!("{ID}: {what} not implemented yet"))
+    fn gui_only(&self, operation: &str) -> Error {
+        Error::Other(format!(
+            "{ID}: {operation} is not scriptable - bauh only exposes its package operations through the GUI (run `bauh`)"
+        ))
     }
 }
 
@@ -64,35 +72,28 @@ impl PackageManager for Manager {
     }
 
     fn capabilities(&self) -> Capabilities {
-        Capabilities::CORE | Capabilities::SEARCH | Capabilities::UPGRADE
+        Capabilities::CORE
     }
 
     async fn install(&self, _packages: &[PackageRequest], _ctx: &OpContext) -> Result<()> {
-        Err(self.todo("install"))
+        Err(self.gui_only("install"))
     }
 
     async fn remove(&self, _packages: &[PackageRequest], _ctx: &OpContext) -> Result<()> {
-        Err(self.todo("remove"))
+        Err(self.gui_only("remove"))
     }
 
     async fn list_installed(&self) -> Result<Vec<Box<dyn Package>>> {
-        Err(self.todo("list-installed"))
+        Err(self.gui_only("list-installed"))
     }
 
     async fn info(&self, _name: &str) -> Result<Box<dyn Package>> {
-        Err(self.todo("info"))
-    }
-
-    async fn search(&self, _query: &str) -> Result<Vec<Box<dyn Package>>> {
-        Err(self.todo("search"))
-    }
-
-    async fn upgrade(&self, _packages: &[PackageRequest], _ctx: &OpContext) -> Result<()> {
-        Err(self.todo("upgrade"))
+        Err(self.gui_only("info"))
     }
 }
 
-/// The package type this backend will produce once implemented.
+/// The package type this backend would produce - never constructed, because
+/// bauh's CLI cannot report packages.
 #[derive(Debug)]
 pub struct BauhPackage {
     pub name: String,
@@ -120,5 +121,25 @@ impl Package for BauhPackage {
 
     fn state(&self) -> InstallState {
         self.state
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn advertises_only_the_core_set() {
+        assert_eq!(Manager.capabilities(), Capabilities::CORE);
+        assert!(!Manager.capabilities().contains(Capabilities::SEARCH));
+        assert!(!Manager.capabilities().contains(Capabilities::UPGRADE));
+    }
+
+    #[test]
+    fn operations_explain_the_gui_limitation() {
+        let message = Manager.gui_only("install").to_string();
+        assert!(message.contains("bauh"));
+        assert!(message.contains("GUI"));
+        assert!(message.contains("install"));
     }
 }

@@ -1,12 +1,21 @@
 //! Hatch backend for snowcone.
 //!
-//! Stub: discovery, capabilities, and database membership are wired;
-//! the operations themselves are not implemented yet.
+//! Hatch is a project manager with no CLI verbs for installing packages -
+//! dependencies are edited in pyproject.toml by hand, and `hatch env` is
+//! project-scoped machinery. Its one real, user-level install surface is
+//! `hatch python`: management of standalone Python distributions
+//! (`hatch python install 3.12`). That is what this backend drives, so
+//! "packages" here are distribution names like `3.12` or `pypy3.10`, not
+//! PyPI projects. `hatch python show` renders rich tables, so reads run
+//! with NO_COLOR under LC_ALL=C and the parser strips the box drawing.
+//! No `hatch python` verb has a dry-run, so `dry_run` errors.
+
+use std::path::PathBuf;
 
 use async_trait::async_trait;
 use snowcone_core::{
-    BackendFactory, Capabilities, Detection, Error, HostInfo, InstallState, ManagerKind, OpContext,
-    Package, PackageManager, PackageRequest, Result, find_program,
+    BackendFactory, Capabilities, Cmd, Detection, Elevator, Error, HostInfo, InstallState,
+    ManagerKind, OpContext, Package, PackageManager, PackageRequest, Result, find_program,
 };
 
 const ID: &str = "hatch";
@@ -32,16 +41,71 @@ impl BackendFactory for Factory {
         }
     }
 
-    fn create(&self, _host: &HostInfo) -> Result<Box<dyn PackageManager>> {
-        Ok(Box::new(Manager))
+    fn create(&self, host: &HostInfo) -> Result<Box<dyn PackageManager>> {
+        let program = PROGRAMS
+            .iter()
+            .find_map(|program| find_program(program))
+            .ok_or_else(|| Error::Unavailable(ID.to_string()))?;
+        Ok(Box::new(Manager {
+            program,
+            elevator: Elevator::detect(host),
+        }))
     }
 }
 
-struct Manager;
+struct Manager {
+    program: PathBuf,
+    elevator: Elevator,
+}
 
 impl Manager {
-    fn todo(&self, what: &str) -> Error {
-        Error::Other(format!("{ID}: {what} not implemented yet"))
+    fn cmd(&self) -> Cmd {
+        Cmd::new(&self.program)
+    }
+
+    /// Read invocation with a stable locale and rich's coloring off, so
+    /// the table output parses cleanly.
+    fn query(&self) -> Cmd {
+        Cmd::new(&self.program)
+            .env("LC_ALL", "C")
+            .env("NO_COLOR", "1")
+    }
+
+    /// CLI passthrough when no event consumer is attached, captured and
+    /// streamed otherwise.
+    async fn run(&self, cmd: Cmd, ctx: &OpContext) -> Result<()> {
+        let output = match &ctx.events {
+            Some(events) => cmd.capture(&self.elevator, Some(events)).await?,
+            None => cmd.run_interactive(&self.elevator).await?,
+        };
+        output.require_success()?;
+        Ok(())
+    }
+
+    fn no_dry_run(&self, operation: &str) -> Error {
+        Error::Other(format!("{ID}: {operation} has no dry-run mode"))
+    }
+
+    /// Installed and available distributions, from `hatch python show`.
+    async fn show(&self) -> Result<Vec<HatchPackage>> {
+        let output = self
+            .query()
+            .args(["python", "show"])
+            .capture(&self.elevator, None)
+            .await?
+            .require_success()?;
+        Ok(parse_python_show(&output.stdout))
+    }
+}
+
+/// Distribution names label a fixed upstream build; there is no version
+/// to choose at install time.
+fn reject_pins(requests: &[PackageRequest]) -> Result<()> {
+    match requests.iter().find(|request| request.version.is_some()) {
+        Some(pinned) => Err(Error::Other(format!(
+            "{ID}: `{pinned}` pins a version, but `hatch python` always installs the current build of a distribution"
+        ))),
+        None => Ok(()),
     }
 }
 
@@ -67,29 +131,100 @@ impl PackageManager for Manager {
         Capabilities::CORE
     }
 
-    async fn install(&self, _packages: &[PackageRequest], _ctx: &OpContext) -> Result<()> {
-        Err(self.todo("install"))
+    async fn install(&self, packages: &[PackageRequest], ctx: &OpContext) -> Result<()> {
+        reject_pins(packages)?;
+        if ctx.dry_run {
+            return Err(self.no_dry_run("install"));
+        }
+        for package in packages {
+            self.run(
+                self.cmd().args(["python", "install"]).arg(&package.name),
+                ctx,
+            )
+            .await?;
+        }
+        Ok(())
     }
 
-    async fn remove(&self, _packages: &[PackageRequest], _ctx: &OpContext) -> Result<()> {
-        Err(self.todo("remove"))
+    async fn remove(&self, packages: &[PackageRequest], ctx: &OpContext) -> Result<()> {
+        if ctx.dry_run {
+            return Err(self.no_dry_run("remove"));
+        }
+        for package in packages {
+            self.run(
+                self.cmd().args(["python", "remove"]).arg(&package.name),
+                ctx,
+            )
+            .await?;
+        }
+        Ok(())
     }
 
     async fn list_installed(&self) -> Result<Vec<Box<dyn Package>>> {
-        Err(self.todo("list-installed"))
+        Ok(self
+            .show()
+            .await?
+            .into_iter()
+            .filter(|package| package.state == InstallState::Installed)
+            .map(|package| Box::new(package) as Box<dyn Package>)
+            .collect())
     }
 
-    async fn info(&self, _name: &str) -> Result<Box<dyn Package>> {
-        Err(self.todo("info"))
+    async fn info(&self, name: &str) -> Result<Box<dyn Package>> {
+        let mut pythons = self.show().await?;
+        let index = pythons
+            .iter()
+            .position(|python| python.name == name && python.state == InstallState::Installed)
+            .or_else(|| pythons.iter().position(|python| python.name == name))
+            .ok_or_else(|| Error::NotFound(name.to_string()))?;
+        Ok(Box::new(pythons.swap_remove(index)))
     }
 }
 
-/// The package type this backend will produce once implemented.
-#[derive(Debug)]
+/// `hatch python show`: rich tables titled `Installed` and `Available`
+/// with Name/Version columns; data rows are `│`-separated cells, and
+/// border/header rows fail the version check.
+fn parse_python_show(stdout: &str) -> Vec<HatchPackage> {
+    let mut packages = Vec::new();
+    let mut state = InstallState::Unknown;
+    for line in stdout.lines() {
+        let trimmed = line.trim();
+        match trimmed {
+            "Installed" => {
+                state = InstallState::Installed;
+                continue;
+            }
+            "Available" => {
+                state = InstallState::Available;
+                continue;
+            }
+            _ => {}
+        }
+        let cells: Vec<&str> = trimmed
+            .split(['│', '┃', '|'])
+            .map(str::trim)
+            .filter(|cell| !cell.is_empty())
+            .collect();
+        let [name, version, ..] = cells[..] else {
+            continue;
+        };
+        if state == InstallState::Unknown || !version.starts_with(|c: char| c.is_ascii_digit()) {
+            continue;
+        }
+        packages.push(HatchPackage {
+            name: name.to_string(),
+            version: Some(version.to_string()),
+            state,
+        });
+    }
+    packages
+}
+
+/// A Python distribution as `hatch python show` describes it.
+#[derive(Debug, Default)]
 pub struct HatchPackage {
     pub name: String,
     pub version: Option<String>,
-    pub description: Option<String>,
     pub state: InstallState,
 }
 
@@ -106,11 +241,62 @@ impl Package for HatchPackage {
         self.version.as_deref()
     }
 
-    fn description(&self) -> Option<&str> {
-        self.description.as_deref()
-    }
-
     fn state(&self) -> InstallState {
         self.state
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_show_tables() {
+        let stdout = "\
+     Installed
+┏━━━━━━┳━━━━━━━━━┓
+┃ Name ┃ Version ┃
+┡━━━━━━╇━━━━━━━━━┩
+│ 3.12 │ 3.12.3  │
+└──────┴─────────┘
+     Available
+┏━━━━━━━━━━┳━━━━━━━━━┓
+┃ Name     ┃ Version ┃
+┡━━━━━━━━━━╇━━━━━━━━━┩
+│ 3.11     │ 3.11.9  │
+│ pypy3.10 │ 7.3.15  │
+└──────────┴─────────┘
+";
+        let packages = parse_python_show(stdout);
+        assert_eq!(packages.len(), 3);
+        assert_eq!(packages[0].name, "3.12");
+        assert_eq!(packages[0].version.as_deref(), Some("3.12.3"));
+        assert_eq!(packages[0].state, InstallState::Installed);
+        assert_eq!(packages[1].state, InstallState::Available);
+        assert_eq!(packages[2].name, "pypy3.10");
+        assert_eq!(packages[2].version.as_deref(), Some("7.3.15"));
+    }
+
+    #[test]
+    fn parses_ascii_rows() {
+        let stdout = "\
+Installed
+| 3.12 | 3.12.3 |
+";
+        let packages = parse_python_show(stdout);
+        assert_eq!(packages.len(), 1);
+        assert_eq!(packages[0].name, "3.12");
+        assert_eq!(packages[0].state, InstallState::Installed);
+    }
+
+    #[test]
+    fn rows_outside_a_section_are_ignored() {
+        assert!(parse_python_show("│ 3.12 │ 3.12.3 │\n").is_empty());
+    }
+
+    #[test]
+    fn rejects_version_pins() {
+        assert!(reject_pins(&[PackageRequest::parse("3.12@3.12.3")]).is_err());
+        assert!(reject_pins(&[PackageRequest::parse("3.12")]).is_ok());
     }
 }

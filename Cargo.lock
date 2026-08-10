@@ -968,6 +968,7 @@ name = "snowcone-composer"
 version = "0.0.4"
 dependencies = [
  "async-trait",
+ "serde_json",
  "snowcone-core",
 ]
 
@@ -984,6 +985,7 @@ name = "snowcone-conda"
 version = "0.0.4"
 dependencies = [
  "async-trait",
+ "serde_json",
  "snowcone-core",
 ]
 
@@ -1230,6 +1232,7 @@ name = "snowcone-luet"
 version = "0.0.4"
 dependencies = [
  "async-trait",
+ "serde_json",
  "snowcone-core",
 ]
 
@@ -1254,6 +1257,7 @@ name = "snowcone-mamba"
 version = "0.0.4"
 dependencies = [
  "async-trait",
+ "serde_json",
  "snowcone-core",
 ]
 
@@ -1392,6 +1396,7 @@ name = "snowcone-pdm"
 version = "0.0.4"
 dependencies = [
  "async-trait",
+ "serde_json",
  "snowcone-core",
 ]
 
@@ -1474,6 +1479,7 @@ name = "snowcone-pnpm"
 version = "0.0.4"
 dependencies = [
  "async-trait",
+ "serde_json",
  "snowcone-core",
 ]
 
@@ -1546,6 +1552,7 @@ name = "snowcone-rpm-ostree"
 version = "0.0.4"
 dependencies = [
  "async-trait",
+ "serde_json",
  "snowcone-core",
 ]
 
@@ -1626,6 +1633,7 @@ name = "snowcone-spack"
 version = "0.0.4"
 dependencies = [
  "async-trait",
+ "serde_json",
  "snowcone-core",
 ]
 
@@ -1746,6 +1754,7 @@ name = "snowcone-yarn"
 version = "0.0.4"
 dependencies = [
  "async-trait",
+ "serde_json",
  "snowcone-core",
 ]
 
