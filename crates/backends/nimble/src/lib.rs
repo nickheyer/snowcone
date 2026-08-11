@@ -93,11 +93,12 @@ impl Manager {
         cmd
     }
 
-    /// Installed packages, from `nimble list -i`.
+    /// Installed packages, from `nimble list -i --ver` (recent nimble
+    /// prints bare names without `--ver`).
     async fn installed(&self) -> Result<Vec<NimblePackage>> {
         let output = self
             .query()
-            .args(["list", "-i"])
+            .args(["list", "-i", "--ver"])
             .capture(&self.elevator, None)
             .await?
             .require_success()?;
@@ -242,27 +243,49 @@ fn boxed(packages: Vec<NimblePackage>) -> Vec<Box<dyn Package>> {
         .collect()
 }
 
-/// `list -i`: `name  [versions]` lines; side-by-side installs appear
-/// comma-separated inside the brackets and the last (newest) one wins.
+/// `list -i --ver`, in both shapes nimble has shipped. The old form is
+/// one `name  [versions]` line per package (side-by-side installs
+/// comma-separated inside the brackets, the last - newest - one wins).
+/// Recent nimble prints a bare `name` line followed by one
+/// `└── @version (checksum) (path)` tree line per install (names only
+/// without `--ver`), after a literal `Package list format:` legend whose
+/// template lines carry braces - nimble package names never do.
 fn parse_installed(stdout: &str) -> Vec<NimblePackage> {
-    stdout
-        .lines()
-        .filter_map(|line| {
-            let name = line.split_whitespace().next()?;
-            let version = line
-                .split_once('[')
-                .map(|(_, versions)| versions.trim_end().trim_end_matches(']'))
-                .and_then(|versions| versions.split(',').next_back())
-                .map(|version| version.trim().to_string())
-                .filter(|version| !version.is_empty());
-            Some(NimblePackage {
-                name: name.to_string(),
-                version,
-                state: InstallState::Installed,
-                ..Default::default()
-            })
-        })
-        .collect()
+    let mut packages: Vec<NimblePackage> = Vec::new();
+    for line in stdout.lines() {
+        let text = line
+            .trim_start_matches(|c: char| c.is_whitespace() || matches!(c, '├' | '└' | '│' | '─'))
+            .trim_end();
+        if text.is_empty() || text.contains('{') || text == "Package list format:" {
+            continue;
+        }
+        if let Some(rest) = text.strip_prefix('@') {
+            // A tree version line under the previous name line; the last
+            // (newest) install wins.
+            if let Some(last) = packages.last_mut()
+                && let Some(version) = rest.split_whitespace().next()
+            {
+                last.version = Some(version.to_string());
+            }
+            continue;
+        }
+        let Some(name) = text.split_whitespace().next() else {
+            continue;
+        };
+        let version = text
+            .split_once('[')
+            .map(|(_, versions)| versions.trim_end().trim_end_matches(']'))
+            .and_then(|versions| versions.split(',').next_back())
+            .map(|version| version.trim().to_string())
+            .filter(|version| !version.is_empty());
+        packages.push(NimblePackage {
+            name: name.to_string(),
+            version,
+            state: InstallState::Installed,
+            ..Default::default()
+        });
+    }
+    packages
 }
 
 /// `search`: a `name:` header per match with indented `key: value` fields
@@ -366,6 +389,46 @@ jester  [0.5.0, 0.6.0]
         assert_eq!(packages[0].version.as_deref(), Some("1.7.5"));
         assert_eq!(packages[1].version.as_deref(), Some("0.6.0"));
         assert_eq!(packages[1].state, InstallState::Installed);
+    }
+
+    #[test]
+    fn parses_installed_tree_list() {
+        // Recent nimble under `--ver`: a legend, then a name line with one
+        // tree line per side-by-side install.
+        let stdout = "\
+Package list format:
+{PackageName}
+└── @{Version} ({CheckSum})[Special Versions (if any)] ({InstallPath})
+cligen
+└── @1.7.5 (b933ba98d33b6e2bcb010b108bd0eee9ce66a02c) (/home/nick/.nimble/pkgs2/cligen-1.7.5-b933ba98)
+jester
+├── @0.5.0 (9d0d3a5ea38983d1ae43cbf80f70cd0f0d43bf5b) (/home/nick/.nimble/pkgs2/jester-0.5.0-9d0d3a5e)
+└── @0.6.0 (3d1503bca92737b8b2a3b2b5bfee5b326bf62aeb) (/home/nick/.nimble/pkgs2/jester-0.6.0-3d1503bc)
+";
+        let packages = parse_installed(stdout);
+        assert_eq!(packages.len(), 2);
+        assert_eq!(packages[0].name, "cligen");
+        assert_eq!(packages[0].version.as_deref(), Some("1.7.5"));
+        assert_eq!(packages[1].name, "jester");
+        assert_eq!(packages[1].version.as_deref(), Some("0.6.0"));
+        assert_eq!(packages[1].state, InstallState::Installed);
+    }
+
+    #[test]
+    fn parses_installed_names_only() {
+        // Recent nimble without `--ver` prints the legend and bare names.
+        let stdout = "\
+Package list format:
+{PackageName}
+└── @{Version} ({CheckSum})[Special Versions (if any)] ({InstallPath})
+cligen
+jester
+";
+        let packages = parse_installed(stdout);
+        assert_eq!(packages.len(), 2);
+        assert_eq!(packages[0].name, "cligen");
+        assert_eq!(packages[0].version, None);
+        assert_eq!(packages[1].name, "jester");
     }
 
     #[test]

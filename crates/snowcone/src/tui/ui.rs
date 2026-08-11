@@ -33,6 +33,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     match &app.mode {
         Mode::Help => modal::draw_help(frame),
         Mode::Confirm(state) => modal::draw_confirm(frame, state),
+        Mode::Password(state) => modal::draw_password(frame, state),
         _ => {}
     }
 }
@@ -81,6 +82,7 @@ fn hints(app: &App) -> &'static str {
         }
         Mode::Input(InputTarget::Filter) => " Enter apply filter · Esc back · Ctrl-U clear ",
         Mode::Confirm(_) => " y confirm · n cancel · ←/→ pick button · Enter activate ",
+        Mode::Password(_) => " Enter submit · Esc cancel · Ctrl-U clear ",
         Mode::Help => " any key closes ",
         Mode::Normal => match app.tab {
             Tab::Search => {

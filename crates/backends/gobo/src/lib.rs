@@ -140,8 +140,16 @@ impl PackageManager for Manager {
             return Err(self.no_dry_run("remove"));
         }
         for package in packages {
-            self.run(Cmd::new(&self.remove_program).arg(&package.name), ctx)
-                .await?;
+            // RemoveProgram takes `<program> [<version>]` and has a real
+            // non-interactive switch: `-b/--batch`, "Do not ask for
+            // confirmation". Given several installed versions and no
+            // version argument it does not prompt either way - it exits
+            // with an error naming the versions.
+            let mut cmd = Cmd::new(&self.remove_program);
+            if ctx.assume_yes {
+                cmd = cmd.arg("--batch");
+            }
+            self.run(cmd.arg(&package.name), ctx).await?;
         }
         Ok(())
     }
@@ -165,10 +173,12 @@ impl PackageManager for Manager {
                 .join(&package.name)
                 .join(version)
                 .join("Resources");
-            package.description = fs::read_to_string(resources.join("Description"))
-                .ok()
-                .as_deref()
-                .and_then(parse_description);
+            if let Ok(text) = fs::read_to_string(resources.join("Description")) {
+                let details = parse_description(&text);
+                package.description = details.summary.or(details.description);
+                package.license = details.license;
+                package.homepage = details.homepage;
+            }
             package.dependencies = fs::read_to_string(resources.join("Dependencies"))
                 .ok()
                 .as_deref()
@@ -233,10 +243,62 @@ fn pick_version(mut versions: Vec<String>, current: Option<&str>) -> Option<Stri
     versions.pop()
 }
 
-/// `Resources/Description`: free text, folded into one line.
-fn parse_description(text: &str) -> Option<String> {
-    let folded = text.split_whitespace().collect::<Vec<_>>().join(" ");
-    (!folded.is_empty()).then_some(folded)
+/// What a `Resources/Description` file yields.
+#[derive(Debug, Default, PartialEq)]
+struct DescriptionResource {
+    summary: Option<String>,
+    description: Option<String>,
+    license: Option<String>,
+    homepage: Option<String>,
+}
+
+/// `Resources/Description` is a bracketed-field file - `[Name] bash`,
+/// `[Summary] …`, `[Description] …`, `[License] GPL`, `[Homepage] …` -
+/// where long values continue on unbracketed lines (folded here) and
+/// fields this backend has no slot for (`[Name]`, `[Suse Category]`, …)
+/// are skipped. A file with no bracketed field at all is treated as
+/// old-style free text and folds into the description whole.
+fn parse_description(text: &str) -> DescriptionResource {
+    let mut fields: Vec<(String, String)> = Vec::new();
+    let mut free_text: Vec<&str> = Vec::new();
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if let Some(rest) = trimmed.strip_prefix('[')
+            && let Some((label, value)) = rest.split_once(']')
+        {
+            fields.push((label.trim().to_string(), value.trim().to_string()));
+            continue;
+        }
+        match fields.last_mut() {
+            Some((_, value)) => {
+                if !value.is_empty() {
+                    value.push(' ');
+                }
+                value.push_str(trimmed);
+            }
+            None => free_text.push(trimmed),
+        }
+    }
+    let mut resource = DescriptionResource::default();
+    for (label, value) in fields {
+        if value.is_empty() {
+            continue;
+        }
+        match label.as_str() {
+            "Summary" => resource.summary = Some(value),
+            "Description" => resource.description = Some(value),
+            "License" => resource.license = Some(value),
+            "Homepage" => resource.homepage = Some(value),
+            _ => {}
+        }
+    }
+    if resource.summary.is_none() && resource.description.is_none() && !free_text.is_empty() {
+        resource.description = Some(free_text.join(" "));
+    }
+    resource
 }
 
 /// `Resources/Dependencies`: one dependency per line as `Name [op version]`;
@@ -261,6 +323,8 @@ pub struct GoboPackage {
     pub name: String,
     pub version: Option<String>,
     pub description: Option<String>,
+    pub homepage: Option<String>,
+    pub license: Option<String>,
     pub dependencies: Option<Vec<String>>,
     pub state: InstallState,
 }
@@ -280,6 +344,14 @@ impl Package for GoboPackage {
 
     fn description(&self) -> Option<&str> {
         self.description.as_deref()
+    }
+
+    fn homepage(&self) -> Option<&str> {
+        self.homepage.as_deref()
+    }
+
+    fn license(&self) -> Option<&str> {
+        self.license.as_deref()
     }
 
     fn dependencies(&self) -> Option<Vec<String>> {
@@ -354,12 +426,68 @@ mod tests {
     }
 
     #[test]
-    fn parses_description_resource() {
+    fn parses_description_resource_fields() {
+        // Bash/5.0/Resources/Description from gobolinux/Recipes, verbatim.
+        let text = "\
+[Name]  bash
+[Summary]  The GNU Bourne-Again Shell
+[Description]  Bash is an sh-compatible command interpreter that executes commands read from standard input or from a file. Bash incorporates useful features from the Korn and C shells (ksh and csh). Bash is intended to be a conformant implementation of the IEEE Posix Shell and Tools specification (IEEE Working Group 1003.2).
+[Suse Category]  System/Shells
+[License]  GPL
+[Homepage]  https://www.gnu.org/software/bash/bash.html
+";
+        let resource = parse_description(text);
         assert_eq!(
-            parse_description("The GNU Bourne\nAgain SHell.\n").as_deref(),
+            resource.summary.as_deref(),
+            Some("The GNU Bourne-Again Shell")
+        );
+        assert!(
+            resource
+                .description
+                .as_deref()
+                .is_some_and(|text| text.starts_with("Bash is an sh-compatible"))
+        );
+        assert_eq!(resource.license.as_deref(), Some("GPL"));
+        assert_eq!(
+            resource.homepage.as_deref(),
+            Some("https://www.gnu.org/software/bash/bash.html")
+        );
+    }
+
+    #[test]
+    fn folds_description_continuation_lines() {
+        // Htop/2.2.0/Resources/Description from gobolinux/Recipes: no
+        // `[Name]`, and a `[Description]` wrapped across several lines.
+        let text = "\
+[Summary] Top-like process viewer for Linux
+[Description] htop is an interactive process viewer for Linux.
+It aims to be a 'better top': you can scroll the
+process list vertically and horizontally, and
+select a process to be killed with the arrow keys
+instead of by typing its process id. It requires
+ncurses, and was tested with Linux 2.4 and 2.6.
+[License] GNU GPL 2
+[Homepage] https://hisham.hm/htop
+";
+        let resource = parse_description(text);
+        assert_eq!(
+            resource.summary.as_deref(),
+            Some("Top-like process viewer for Linux")
+        );
+        let description = resource.description.unwrap();
+        assert!(description.starts_with("htop is an interactive process viewer"));
+        assert!(description.ends_with("tested with Linux 2.4 and 2.6."));
+        assert_eq!(resource.license.as_deref(), Some("GNU GPL 2"));
+    }
+
+    #[test]
+    fn free_text_description_still_folds() {
+        let resource = parse_description("The GNU Bourne\nAgain SHell.\n");
+        assert_eq!(
+            resource.description.as_deref(),
             Some("The GNU Bourne Again SHell.")
         );
-        assert_eq!(parse_description("  \n"), None);
+        assert_eq!(parse_description("  \n"), DescriptionResource::default());
     }
 
     #[test]

@@ -175,8 +175,13 @@ impl PackageManager for Manager {
             return self.run(self.mutation("update", _ctx)?, _ctx).await;
         }
         for package in _packages {
-            self.run(add_request(self.mutation("update", _ctx)?, package), _ctx)
-                .await?;
+            // `haxelib update` takes only a library name; a pinned target
+            // switches versions through `install <name> <version>` instead.
+            let cmd = match &package.version {
+                Some(_) => add_request(self.mutation("install", _ctx)?, package),
+                None => self.mutation("update", _ctx)?.arg(&package.name),
+            };
+            self.run(cmd, _ctx).await?;
         }
         Ok(())
     }
@@ -188,15 +193,24 @@ fn boxed(v: Vec<HaxelibPackage>) -> Vec<Box<dyn Package>> {
         .collect()
 }
 
+/// `haxelib list`: `name: v1 [v2] …` with the active version bracketed; a
+/// development checkout appears as `[dev:/path/to/lib]` and its path may
+/// hold spaces or commas, so it is taken whole rather than tokenized.
 fn parse_list(stdout: &str) -> Vec<HaxelibPackage> {
     stdout
         .lines()
         .filter_map(|line| {
             let (name, versions) = line.split_once(':')?;
-            let active = versions
-                .split_whitespace()
-                .find(|v| v.starts_with('[') && v.ends_with(']'))
-                .map(|v| v.trim_matches(&['[', ']'][..]).replace(',', "."));
+            let active = match versions.split_once("[dev:") {
+                Some((_, dev)) => {
+                    let path = dev.rsplit_once(']').map_or(dev, |(path, _)| path);
+                    Some(format!("dev:{}", path.trim()))
+                }
+                None => versions
+                    .split_whitespace()
+                    .find(|v| v.starts_with('[') && v.ends_with(']'))
+                    .map(|v| v.trim_matches(&['[', ']'][..]).replace(',', ".")),
+            };
             Some(HaxelibPackage {
                 name: name.trim().into(),
                 version: active,
@@ -207,6 +221,9 @@ fn parse_list(stdout: &str) -> Vec<HaxelibPackage> {
         .collect()
 }
 
+/// `haxelib info`: `Name:`, `Tags:`, `Desc:`, `Website:`, `License:`,
+/// `Owner:`, `Version:` (the latest release), then a `Releases:` block of
+/// `   <date> <version> : <comments>` lines (haxelib's Main.hx `doInfo`).
 fn parse_info(stdout: &str) -> Option<HaxelibPackage> {
     let mut name = None;
     let mut version = None;
@@ -214,9 +231,9 @@ fn parse_info(stdout: &str) -> Option<HaxelibPackage> {
     for line in stdout.lines() {
         if let Some((key, value)) = line.split_once(':') {
             match key.trim().to_ascii_lowercase().as_str() {
-                "name" | "project" => name = Some(value.trim().to_owned()),
-                "current version" | "version" => version = Some(value.trim().to_owned()),
-                "description" => description = Some(value.trim().to_owned()),
+                "name" => name = Some(value.trim().to_owned()),
+                "version" => version = Some(value.trim().to_owned()),
+                "desc" => description = Some(value.trim().to_owned()),
                 _ => {}
             }
         }
@@ -229,21 +246,20 @@ fn parse_info(stdout: &str) -> Option<HaxelibPackage> {
     })
 }
 
+/// `haxelib search`: one bare library name per line, then a trailing
+/// `N libraries found` count line - no versions, no descriptions.
 fn parse_search(stdout: &str) -> Vec<HaxelibPackage> {
     stdout
         .lines()
         .filter_map(|line| {
             let line = line.trim();
-            if line.is_empty() || line.starts_with("Search") {
+            if line.is_empty() || line.ends_with("libraries found") {
                 return None;
             }
-            let (name, description) = line
-                .split_once(':')
-                .map_or((line, None), |(n, d)| (n, Some(d.trim().to_owned())));
             Some(HaxelibPackage {
-                name: name.trim().into(),
+                name: line.into(),
                 version: None,
-                description,
+                description: None,
                 state: InstallState::Available,
             })
         })
@@ -255,16 +271,33 @@ mod tests {
     use super::*;
     #[test]
     fn list_uses_active_version() {
-        let p = parse_list("format: 3.4.0 [3.5.0]\nhxcpp: [4,3,2]\n");
+        let p = parse_list(
+            "format: 3.4.0 [3.5.0]\nhxcpp: [4,3,2]\nmylib: 1.0.0 [dev:/home/nick/code/mylib]\n",
+        );
         assert_eq!(p[0].version.as_deref(), Some("3.5.0"));
         assert_eq!(p[1].version.as_deref(), Some("4.3.2"));
+        assert_eq!(p[2].name, "mylib");
+        assert_eq!(p[2].version.as_deref(), Some("dev:/home/nick/code/mylib"));
     }
     #[test]
     fn info_fields() {
-        let p = parse_info("Project: openfl\nDescription: Framework\nCurrent version: 9.4.1\n")
-            .unwrap();
+        let p = parse_info(
+            "Name: openfl\nTags: cross, game\nDesc: The \"Open Flash Library\" for fast 2D development\nWebsite: http://www.openfl.org\nLicense: MIT\nOwner: openfl\nVersion: 9.4.1\nReleases: \n   2013-06-14 0.9.1 : Initial release\n",
+        )
+        .unwrap();
         assert_eq!(p.name, "openfl");
-        assert_eq!(p.description.as_deref(), Some("Framework"));
+        assert_eq!(p.version.as_deref(), Some("9.4.1"));
+        assert_eq!(
+            p.description.as_deref(),
+            Some("The \"Open Flash Library\" for fast 2D development")
+        );
+    }
+    #[test]
+    fn search_filters_count_line() {
+        let p = parse_search("openfl\nopenfl-samples\n2 libraries found\n");
+        assert_eq!(p.len(), 2);
+        assert_eq!(p[0].name, "openfl");
+        assert!(p[0].description.is_none());
     }
 }
 

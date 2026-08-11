@@ -169,7 +169,10 @@ impl PackageManager for Manager {
             .arg(query)
             .capture(&self.elevator, None)
             .await?;
-        if !output.success() && output.stderr.contains("No formula") {
+        // brew exits non-zero with `Error: No formulae or casks found for
+        // "query".` (Library/Homebrew/cmd/search.rb) when nothing matches;
+        // that is an empty result, not a failure.
+        if !output.success() && output.stderr.contains("No formulae or casks found") {
             return Ok(Vec::new());
         }
         let output = output.require_success()?;
@@ -263,19 +266,28 @@ fn parse_info(json: &Value) -> Option<BrewPackage> {
     Some(package)
 }
 
-/// `brew search`: names one per line when piped, with `==>` section
-/// headers.
+/// `brew search`: names one per line when piped, under `==> Formulae` /
+/// `==> Casks` section headers. This backend is formula-only, so only the
+/// formulae section is returned; names before any header (older brews) are
+/// kept, since casks never print without their header.
 fn parse_search(stdout: &str) -> Vec<Box<dyn Package>> {
+    let mut in_formulae = true;
     stdout
         .lines()
         .map(str::trim)
-        .filter(|line| !line.is_empty() && !line.starts_with("==>"))
-        .map(|name| {
-            Box::new(BrewPackage {
-                name: name.to_string(),
-                state: InstallState::Available,
-                ..Default::default()
-            }) as Box<dyn Package>
+        .filter(|line| !line.is_empty())
+        .filter_map(|line| {
+            if let Some(section) = line.strip_prefix("==>") {
+                in_formulae = section.trim() == "Formulae";
+                return None;
+            }
+            in_formulae.then(|| {
+                Box::new(BrewPackage {
+                    name: line.to_string(),
+                    state: InstallState::Available,
+                    ..Default::default()
+                }) as Box<dyn Package>
+            })
         })
         .collect()
 }
@@ -410,6 +422,28 @@ mod tests {
         let packages = parse_search("==> Formulae\nripgrep\nripgrep-all\n");
         assert_eq!(packages.len(), 2);
         assert_eq!(packages[0].name(), "ripgrep");
+    }
+
+    #[test]
+    fn search_skips_the_casks_section() {
+        let stdout = "\
+==> Formulae
+ripgrep
+ripgrep-all
+
+==> Casks
+repetier-server
+";
+        let packages = parse_search(stdout);
+        assert_eq!(packages.len(), 2);
+        assert_eq!(packages[0].name(), "ripgrep");
+        assert_eq!(packages[1].name(), "ripgrep-all");
+    }
+
+    #[test]
+    fn search_without_headers_keeps_all_names() {
+        let packages = parse_search("ripgrep\nripgrep-all\n");
+        assert_eq!(packages.len(), 2);
     }
 
     #[test]

@@ -344,18 +344,35 @@ fn parse_updates(stdout: &str) -> Vec<YumPackage> {
 
 /// `yum info`: `Key : Value` stanzas under "Installed Packages"/"Available
 /// Packages" section headers; wrapped values continue on lines whose key
-/// side is empty.
+/// side is empty. yum prints a separate `Epoch` field (only for non-zero
+/// epochs), which `yum list` folds into its version column as `epoch:` -
+/// the same composition happens here so both reads report one string.
 fn parse_info(stdout: &str) -> Vec<YumPackage> {
-    fn finish(
-        current: &mut Option<(YumPackage, Option<String>, Option<String>)>,
-        packages: &mut Vec<YumPackage>,
-    ) {
-        if let Some((mut package, version, release)) = current.take() {
-            package.version = match (version, release) {
+    #[derive(Default)]
+    struct Stanza {
+        package: YumPackage,
+        epoch: Option<String>,
+        version: Option<String>,
+        release: Option<String>,
+    }
+
+    fn finish(current: &mut Option<Stanza>, packages: &mut Vec<YumPackage>) {
+        if let Some(Stanza {
+            mut package,
+            epoch,
+            version,
+            release,
+        }) = current.take()
+        {
+            let mut version = match (version, release) {
                 (Some(version), Some(release)) => Some(format!("{version}-{release}")),
                 (version, None) => version,
                 (None, _) => None,
             };
+            if let (Some(epoch), Some(composed)) = (epoch.filter(|epoch| epoch != "0"), &version) {
+                version = Some(format!("{epoch}:{composed}"));
+            }
+            package.version = version;
             if !package.name.is_empty() {
                 packages.push(package);
             }
@@ -364,7 +381,7 @@ fn parse_info(stdout: &str) -> Vec<YumPackage> {
 
     let mut packages = Vec::new();
     let mut state = InstallState::Unknown;
-    let mut current: Option<(YumPackage, Option<String>, Option<String>)> = None;
+    let mut current: Option<Stanza> = None;
     let mut last_key = String::new();
     for line in stdout.lines() {
         let trimmed = line.trim();
@@ -384,8 +401,8 @@ fn parse_info(stdout: &str) -> Vec<YumPackage> {
             // Continuation of the previous field; only the summary matters.
             if last_key == "Summary"
                 && !value.is_empty()
-                && let Some((package, _, _)) = current.as_mut()
-                && let Some(description) = package.description.as_mut()
+                && let Some(stanza) = current.as_mut()
+                && let Some(description) = stanza.package.description.as_mut()
             {
                 description.push(' ');
                 description.push_str(value);
@@ -395,34 +412,34 @@ fn parse_info(stdout: &str) -> Vec<YumPackage> {
         last_key = key.to_string();
         if key == "Name" {
             finish(&mut current, &mut packages);
-            current = Some((
-                YumPackage {
+            current = Some(Stanza {
+                package: YumPackage {
                     name: value.to_string(),
                     state,
                     ..Default::default()
                 },
-                None,
-                None,
-            ));
+                ..Default::default()
+            });
             continue;
         }
-        let Some((package, version, release)) = current.as_mut() else {
+        let Some(stanza) = current.as_mut() else {
             continue;
         };
         if value.is_empty() {
             continue;
         }
         match key {
-            "Version" => *version = Some(value.to_string()),
-            "Release" => *release = Some(value.to_string()),
-            "Arch" => package.architecture = Some(value.to_string()),
-            "Summary" => package.description = Some(value.to_string()),
-            "URL" => package.homepage = Some(value.to_string()),
-            "License" => package.license = Some(value.to_string()),
+            "Epoch" => stanza.epoch = Some(value.to_string()),
+            "Version" => stanza.version = Some(value.to_string()),
+            "Release" => stanza.release = Some(value.to_string()),
+            "Arch" => stanza.package.architecture = Some(value.to_string()),
+            "Summary" => stanza.package.description = Some(value.to_string()),
+            "URL" => stanza.package.homepage = Some(value.to_string()),
+            "License" => stanza.package.license = Some(value.to_string()),
             // "installed" only restates the section; "From repo" names the
             // real origin for installed packages.
-            "Repo" if value != "installed" => package.origin = Some(value.to_string()),
-            "From repo" => package.origin = Some(value.to_string()),
+            "Repo" if value != "installed" => stanza.package.origin = Some(value.to_string()),
+            "From repo" => stanza.package.origin = Some(value.to_string()),
             _ => {}
         }
     }
@@ -592,6 +609,42 @@ Summary     : Line-oriented search tool using Rust's regex library
         );
         assert_eq!(stanzas[1].state, InstallState::Available);
         assert_eq!(stanzas[1].version.as_deref(), Some("14.1.0-2.el7"));
+    }
+
+    #[test]
+    fn info_composes_epoch_into_the_version() {
+        // Non-zero epochs get their own `Epoch` field in `yum info`, which
+        // `yum list` reports inline as `1:1.18.8-2.el7_9`.
+        let stdout = "\
+Installed Packages
+Name        : NetworkManager
+Arch        : x86_64
+Epoch       : 1
+Version     : 1.18.8
+Release     : 2.el7_9
+Size        : 9.2 M
+Repo        : installed
+From repo   : updates
+Summary     : Network connection manager and user applications
+URL         : http://www.gnome.org/projects/NetworkManager/
+License     : GPLv2+
+";
+        let stanzas = parse_info(stdout);
+        assert_eq!(stanzas.len(), 1);
+        assert_eq!(stanzas[0].version.as_deref(), Some("1:1.18.8-2.el7_9"));
+    }
+
+    #[test]
+    fn info_skips_zero_epochs() {
+        let stdout = "\
+Installed Packages
+Name        : basesystem
+Epoch       : 0
+Version     : 10.0
+Release     : 7.el7.centos
+";
+        let stanzas = parse_info(stdout);
+        assert_eq!(stanzas[0].version.as_deref(), Some("10.0-7.el7.centos"));
     }
 
     #[test]

@@ -268,7 +268,10 @@ fn strip_ansi(text: &str) -> String {
 
 /// `am -f`: an `- APPNAME | VERSION | TYPE | SIZE` table (a DB column
 /// slips in ahead of VERSION when third-party lists are enabled) with one
-/// `\u{25c6}`-bulleted row per installed program.
+/// `\u{25c6}`-bulleted row per installed program. AM tags archived/obsolete
+/// app names with a trailing `**` and locked versions with a `\u{1f512}`
+/// glyph (modules/database.am); both markers are stripped so the clean
+/// name and version come through.
 fn parse_files(stdout: &str) -> Vec<AppimagePackage> {
     let stdout = strip_ansi(stdout);
     let has_db_column = stdout
@@ -279,11 +282,11 @@ fn parse_files(stdout: &str) -> Vec<AppimagePackage> {
         .filter_map(|line| {
             let row = line.trim().strip_prefix('\u{25c6}')?;
             let mut fields = row.split('|').map(str::trim);
-            let name = fields.next()?;
+            let name = fields.next()?.trim_end_matches("**").trim_end();
             if has_db_column {
                 fields.next()?;
             }
-            let version = fields.next()?;
+            let version = fields.next()?.trim_end_matches('\u{1f512}').trim_end();
             (!name.is_empty()).then(|| AppimagePackage {
                 name: name.to_string(),
                 version: (!version.is_empty()).then(|| version.to_string()),
@@ -384,6 +387,23 @@ mod tests {
         assert_eq!(packages.len(), 1);
         assert_eq!(packages[0].name, "obsidian");
         assert_eq!(packages[0].version.as_deref(), Some("1.6.7"));
+    }
+
+    #[test]
+    fn strips_archived_and_lock_markers() {
+        // AM appends `**` to archived/obsolete app names and a `\u{1f512}`
+        // glyph to locked versions (modules/database.am).
+        let stdout = "\
+- APPNAME | VERSION | TYPE | SIZE
+ \u{25c6} firefox** | 128.0.3 | appimage | 256 MB
+ \u{25c6} obsidian | 1.6.7\u{1f512} | appimage | 512 MB
+";
+        let packages = parse_files(stdout);
+        assert_eq!(packages.len(), 2);
+        assert_eq!(packages[0].name, "firefox");
+        assert_eq!(packages[0].version.as_deref(), Some("128.0.3"));
+        assert_eq!(packages[1].name, "obsidian");
+        assert_eq!(packages[1].version.as_deref(), Some("1.6.7"));
     }
 
     #[test]

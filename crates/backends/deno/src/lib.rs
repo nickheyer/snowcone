@@ -11,6 +11,7 @@
 //! impossible and errors. No verb has a dry-run mode, and deno never
 //! prompts during installs, so `assume_yes` has nothing to do.
 
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
@@ -134,7 +135,13 @@ fn list_shims(dir: &Path) -> Result<Vec<String>> {
         let Ok(metadata) = std::fs::metadata(entry.path()) else {
             continue;
         };
-        if metadata.is_file() && metadata.permissions().mode() & 0o111 != 0 {
+        // Executable bit on Unix; Windows shims are .cmd/.exe files with
+        // no mode bits, so a regular file is enough there.
+        #[cfg(unix)]
+        let executable = metadata.permissions().mode() & 0o111 != 0;
+        #[cfg(not(unix))]
+        let executable = true;
+        if metadata.is_file() && executable {
             names.push(name);
         }
     }

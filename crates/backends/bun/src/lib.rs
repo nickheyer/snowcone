@@ -4,10 +4,10 @@
 //! as the npm backend. The global inventory comes from `bun pm ls -g`, a
 //! tree print of the global install dir parsed line by line - bun has no
 //! machine-readable listing. Bun's installer never prompts, so `assume_yes`
-//! has nothing to do. `--dry-run` is documented for `bun add`; remove and
-//! whole-tree update carry no such certainty, so they error under dry-run
-//! instead of guessing. Registry metadata is left alone (`bun info` is too
-//! new to rely on), so `info` only describes installed globals.
+//! has nothing to do. `--dry-run` is documented for `bun add`, `bun update`,
+//! and `bun remove` alike (bun.com/docs/pm/cli), so every mutation honors
+//! it. Registry metadata is left alone (`bun info` is too new to rely on),
+//! so `info` only describes installed globals.
 
 use std::path::PathBuf;
 
@@ -78,10 +78,6 @@ impl Manager {
         Ok(())
     }
 
-    fn no_dry_run(&self, operation: &str) -> Error {
-        Error::Other(format!("{ID}: {operation} has no dry-run mode"))
-    }
-
     /// Globally installed packages, from `bun pm ls -g`.
     async fn global_list(&self) -> Result<Vec<BunPackage>> {
         let output = self
@@ -144,13 +140,11 @@ impl PackageManager for Manager {
     }
 
     async fn remove(&self, packages: &[PackageRequest], ctx: &OpContext) -> Result<()> {
+        let mut cmd = self.cmd().args(["remove", "-g"]);
         if ctx.dry_run {
-            return Err(self.no_dry_run("remove"));
+            cmd = cmd.arg("--dry-run");
         }
-        let cmd = self
-            .cmd()
-            .args(["remove", "-g"])
-            .args(packages.iter().map(|package| package.name.as_str()));
+        cmd = cmd.args(packages.iter().map(|package| package.name.as_str()));
         self.run(cmd, ctx).await
     }
 
@@ -174,10 +168,11 @@ impl PackageManager for Manager {
 
     async fn upgrade(&self, packages: &[PackageRequest], ctx: &OpContext) -> Result<()> {
         if packages.is_empty() {
+            let mut cmd = self.cmd().args(["update", "-g"]);
             if ctx.dry_run {
-                return Err(self.no_dry_run("upgrade"));
+                cmd = cmd.arg("--dry-run");
             }
-            return self.run(self.cmd().args(["update", "-g"]), ctx).await;
+            return self.run(cmd, ctx).await;
         }
         // `add name@latest` upgrades past whatever semver range the
         // original install recorded; `update` would respect it.

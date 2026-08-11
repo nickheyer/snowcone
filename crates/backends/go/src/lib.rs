@@ -220,10 +220,9 @@ impl PackageManager for Manager {
                 .map(|package| format!("{}@latest", package.name))
                 .collect()
         } else {
-            packages
-                .iter()
-                .map(|package| format!("{}@latest", package.name))
-                .collect()
+            // A pinned request upgrades (or moves) to exactly that version;
+            // an unpinned one goes to @latest.
+            packages.iter().map(spec).collect()
         };
         if targets.is_empty() {
             return Ok(());

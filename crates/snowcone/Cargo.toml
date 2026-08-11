@@ -14,7 +14,6 @@ snowcone-backends.workspace = true
 
 anyhow.workspace = true
 clap.workspace = true
-libc.workspace = true
 crossterm.workspace = true
 ratatui.workspace = true
 serde.workspace = true
@@ -23,6 +22,9 @@ tokio.workspace = true
 toml.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
 
 [dev-dependencies]
 async-trait.workspace = true

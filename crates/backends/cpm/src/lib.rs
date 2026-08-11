@@ -15,7 +15,7 @@ use snowcone_core::{
 const ID: &str = "cpm";
 const PROGRAMS: &[&str] = &["cpm"];
 
-const LIST_SCRIPT: &str = r#"$i=ExtUtils::Installed->new(skip_cwd=>1);for $m(sort grep{$_ ne 'Perl'}$i->modules){$v=eval{$i->version($m)}//'';$v=~s/[\t\r\n]/ /g;print \"$m\t$v\n\"}"#;
+const LIST_SCRIPT: &str = r#"$i=ExtUtils::Installed->new(skip_cwd=>1);for $m(sort grep{$_ ne 'Perl'}$i->modules){$v=eval{$i->version($m)}//'';$v=~s/[\t\r\n]/ /g;print "$m\t$v\n"}"#;
 const REMOVE_SCRIPT: &str = r#"use ExtUtils::Install; $i=ExtUtils::Installed->new(skip_cwd=>1);for $m(@ARGV){$p=$i->packlist($m)->packlist_file;ExtUtils::Install::uninstall($p,1,$ENV{SNOWCONE_DRY_RUN}?1:0)}"#;
 
 pub fn factory() -> Box<dyn BackendFactory> {

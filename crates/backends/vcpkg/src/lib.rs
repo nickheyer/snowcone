@@ -134,11 +134,11 @@ impl PackageManager for Manager {
     }
 
     async fn info(&self, name: &str) -> Result<Box<dyn Package>> {
+        // `vcpkg list` takes no filter argument; match client-side.
         let installed = parse_table(
             &self
                 .cmd()
                 .args(["list", "--x-full-desc"])
-                .arg(name)
                 .capture(&self.elevator, None)
                 .await?
                 .require_success()?
@@ -174,12 +174,17 @@ impl PackageManager for Manager {
             .require_success()?;
         Ok(boxed(parse_table(&out.stdout, InstallState::Available)))
     }
+    /// `vcpkg upgrade [options]` takes no package arguments - it always
+    /// rebuilds every outdated classic-mode package - so a targeted
+    /// upgrade is not expressible.
     async fn upgrade(&self, _packages: &[PackageRequest], _ctx: &OpContext) -> Result<()> {
         reject_pins(_packages)?;
-        let mut cmd = self
-            .cmd()
-            .arg("upgrade")
-            .args(_packages.iter().map(|p| p.name.as_str()));
+        if !_packages.is_empty() {
+            return Err(Error::Other(format!(
+                "{ID}: vcpkg upgrade takes no package arguments; it can only upgrade the whole installed set"
+            )));
+        }
+        let mut cmd = self.cmd().arg("upgrade");
         if !_ctx.dry_run {
             cmd = cmd.arg("--no-dry-run");
         }
@@ -242,15 +247,19 @@ fn parse_table(stdout: &str, state: InstallState) -> Vec<VcpkgPackage> {
         })
         .collect()
 }
+/// `vcpkg upgrade` plan rows:
+/// `  * corrade[core,utility]:x64-windows -> 2020.06#5` - one spec token,
+/// an arrow, and the target version; no current-version column.
 fn parse_upgrade(stdout: &str) -> Vec<VcpkgPackage> {
     stdout
         .lines()
         .filter_map(|line| {
             let line = line.trim().trim_start_matches('*').trim();
             let (left, new) = line.split_once(" -> ")?;
-            let mut f = left.split_whitespace();
-            let name = f.next()?;
-            let _old = f.next()?;
+            let name = left.trim();
+            if name.is_empty() || name.contains(' ') {
+                return None;
+            }
             Some(VcpkgPackage {
                 name: name.into(),
                 version: Some(new.split_whitespace().next()?.into()),
@@ -278,8 +287,23 @@ mod tests {
     }
     #[test]
     fn parses_upgrade_plan() {
-        let p = parse_upgrade(" * fmt:x64-linux 9.1.0 -> 10.2.1\n");
-        assert_eq!(p[0].version.as_deref(), Some("10.2.1"));
+        // Example output from the `vcpkg upgrade` command reference
+        // (learn.microsoft.com/en-us/vcpkg/commands/upgrade), abridged.
+        let p = parse_upgrade(
+            "The following packages will be rebuilt:\n\
+             \x20 * corrade[core,interconnect,pluginmanager,testsuite,utility]:x64-windows -> 2020.06#5\n\
+             \x20 * openal-soft[core]:x64-windows -> 1.23.0\n\
+             \x20 * ragel[core]:x64-windows -> 6.10#5\n\
+             Additional packages (*) will be modified to complete this operation.\n\
+             If you are sure you want to rebuild the above packages, run this command with the --no-dry-run option.\n",
+        );
+        assert_eq!(p.len(), 3);
+        assert_eq!(
+            p[0].name,
+            "corrade[core,interconnect,pluginmanager,testsuite,utility]:x64-windows"
+        );
+        assert_eq!(p[0].version.as_deref(), Some("2020.06#5"));
+        assert_eq!(p[1].version.as_deref(), Some("1.23.0"));
         assert_eq!(p[0].state, InstallState::Upgradable);
     }
     #[test]

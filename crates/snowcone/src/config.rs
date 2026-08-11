@@ -80,7 +80,9 @@ impl Config {
     /// Synchronous on purpose: writes are tiny and happen on a keypress.
     pub fn save(&self) -> anyhow::Result<()> {
         let Some(path) = &self.path else {
-            anyhow::bail!("no config path on this host ($XDG_CONFIG_HOME and $HOME unset)");
+            anyhow::bail!(
+                "no config path on this host ($XDG_CONFIG_HOME, $HOME, and %APPDATA% unset)"
+            );
         };
         let parent = path.parent().expect("config path always has a parent");
         std::fs::create_dir_all(parent)?;
@@ -117,13 +119,18 @@ fn config_path() -> Option<PathBuf> {
     {
         return Some(PathBuf::from(xdg).join("snowcone").join("config.toml"));
     }
-    let home = std::env::var_os("HOME").filter(|home| !home.is_empty())?;
-    Some(
-        PathBuf::from(home)
-            .join(".config")
-            .join("snowcone")
-            .join("config.toml"),
-    )
+    if let Some(home) = std::env::var_os("HOME").filter(|home| !home.is_empty()) {
+        return Some(
+            PathBuf::from(home)
+                .join(".config")
+                .join("snowcone")
+                .join("config.toml"),
+        );
+    }
+    // Windows has neither variable; %APPDATA% is the per-user config root.
+    std::env::var_os("APPDATA")
+        .filter(|appdata| !appdata.is_empty())
+        .map(|appdata| PathBuf::from(appdata).join("snowcone").join("config.toml"))
 }
 
 #[cfg(test)]

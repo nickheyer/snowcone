@@ -105,9 +105,13 @@ fn stow_root() -> Result<PathBuf> {
 }
 
 /// Package names are single directory names under the root; separators or
-/// traversal components could escape the farm.
+/// traversal components could escape the farm, and a leading dash would
+/// read as a stow option (`-D`, `--target=/etc`) in the root-elevated
+/// invocation - `--` guards the command line too, but such a name is
+/// rejected outright.
 fn validate_name(name: &str) -> Result<()> {
-    if name.is_empty() || name == "." || name == ".." || name.contains('/') {
+    if name.is_empty() || name == "." || name == ".." || name.contains('/') || name.starts_with('-')
+    {
         return Err(Error::Other(format!(
             "{ID}: `{name}` is not a valid stow package name"
         )));
@@ -159,6 +163,7 @@ impl PackageManager for Manager {
         }
         let cmd = self
             .mutation(ctx)
+            .arg("--")
             .args(packages.iter().map(|package| package.name.as_str()));
         self.run(cmd, ctx).await
     }
@@ -170,7 +175,7 @@ impl PackageManager for Manager {
         }
         let cmd = self
             .mutation(ctx)
-            .arg("-D")
+            .args(["-D", "--"])
             .args(packages.iter().map(|package| package.name.as_str()));
         self.run(cmd, ctx).await
     }
@@ -332,6 +337,9 @@ mod tests {
         assert!(validate_name("..").is_err());
         assert!(validate_name("../etc").is_err());
         assert!(validate_name("a/b").is_err());
+        // A leading dash would be consumed as a stow option.
+        assert!(validate_name("-D").is_err());
+        assert!(validate_name("--target=/etc").is_err());
     }
 
     #[test]

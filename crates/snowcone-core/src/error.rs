@@ -22,6 +22,10 @@ pub enum Error {
     #[error("operation needs root and no elevation helper (sudo, doas, run0, pkexec) was found")]
     ElevationUnavailable,
 
+    /// The elevation helper rejected the supplied password.
+    #[error("authentication failed")]
+    AuthenticationFailed,
+
     #[error("`{command}` failed ({status}): {stderr}")]
     CommandFailed {
         command: String,

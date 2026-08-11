@@ -259,7 +259,10 @@ fn parse_installed(stdout: &str) -> Vec<Box<dyn Package>> {
         .collect()
 }
 
-/// `-Ss`: `repo/name version [extras]` headers with indented descriptions.
+/// `-Ss`: `repo/name version (extras)` headers with indented descriptions.
+/// Modern yay marks installed packages with `(Installed)`; older yay (and
+/// pacman, whose repo lines yay used to relay) used `[installed]` - both
+/// are accepted.
 fn parse_search(stdout: &str) -> Vec<Box<dyn Package>> {
     let mut packages: Vec<YayPackage> = Vec::new();
     for line in stdout.lines() {
@@ -285,7 +288,7 @@ fn parse_search(stdout: &str) -> Vec<Box<dyn Package>> {
             name: name.to_string(),
             version: parts.next().map(str::to_string),
             origin: Some(origin.to_string()),
-            state: if line.contains("[installed") {
+            state: if line.contains("(Installed)") || line.contains("[installed") {
                 InstallState::Installed
             } else {
                 InstallState::Available
@@ -355,7 +358,14 @@ fn parse_info(stdout: &str, state: InstallState) -> Option<YayPackage> {
             "Architecture" => package.architecture = Some(value),
             "Repository" => package.origin = Some(value),
             "Depends On" => {
-                package.dependencies = Some(value.split_whitespace().map(str::to_string).collect());
+                // Entries may carry a constraint (`glibc>=2.38`) or a soname
+                // spec (`libreadline.so=8-64`); keep only the name.
+                package.dependencies = Some(
+                    value
+                        .split_whitespace()
+                        .map(|dep| dep.split(['=', '<', '>']).next().unwrap_or(dep).to_string())
+                        .collect(),
+                );
             }
             _ => {}
         }
@@ -439,26 +449,45 @@ mod tests {
 
     #[test]
     fn parses_search_headers_and_descriptions() {
+        // Captured from yay v13.0.1 (`LC_ALL=C yay -Ss ripgrep`); the
+        // trailing space yay prints after the extras is kept as `\x20`.
         let stdout = "\
-extra/ripgrep 14.1.0-1 [installed]
+aur/ripgrep-git 15.1.0.r4.57c190d5-1 (+13 0.03) [244d22h]\x20
+    A search tool that combines the usability of The Silver Searcher with the raw speed of grep.
+extra/repgrep 0.16.1-1 (1.2 MiB 3.3 MiB)\x20
+    An interactive command line replacer for ripgrep
+extra/ripgrep 15.2.0-1 (1.4 MiB 4.3 MiB) (Installed)
     A search tool that combines the usability of ag with the raw speed of grep
-aur/ripgrep-git 14.1.0.r13.g6f4212a-1 (+31 0.24)
-    A search tool that combines the usability of ag with
-    the raw speed of grep
 ";
         let packages = parse_search(stdout);
-        assert_eq!(packages.len(), 2);
-        assert_eq!(packages[0].name(), "ripgrep");
-        assert_eq!(packages[0].origin(), Some("extra"));
-        assert_eq!(packages[0].state(), InstallState::Installed);
-        assert_eq!(packages[1].name(), "ripgrep-git");
+        assert_eq!(packages.len(), 3);
+        assert_eq!(packages[0].name(), "ripgrep-git");
+        assert_eq!(packages[0].origin(), Some("aur"));
+        assert_eq!(packages[0].state(), InstallState::Available);
+        assert_eq!(packages[1].name(), "repgrep");
         assert_eq!(packages[1].state(), InstallState::Available);
+        assert_eq!(packages[2].name(), "ripgrep");
+        assert_eq!(packages[2].origin(), Some("extra"));
+        assert_eq!(packages[2].state(), InstallState::Installed);
         assert!(
-            packages[1]
+            packages[2]
                 .description()
                 .unwrap()
-                .ends_with("speed of grep")
+                .ends_with("raw speed of grep")
         );
+    }
+
+    #[test]
+    fn accepts_the_older_bracketed_installed_marker() {
+        // pacman's rendering (`LC_ALL=C pacman -Ss '^ripgrep$'`), which
+        // older yay releases relayed for repo results.
+        let stdout = "\
+extra/ripgrep 15.2.0-1 [installed]
+    A search tool that combines the usability of ag with the raw speed of grep
+";
+        let packages = parse_search(stdout);
+        assert_eq!(packages.len(), 1);
+        assert_eq!(packages[0].state(), InstallState::Installed);
     }
 
     #[test]
@@ -472,25 +501,39 @@ aur/ripgrep-git 14.1.0.r13.g6f4212a-1 (+31 0.24)
 
     #[test]
     fn parses_info_fields() {
+        // Captured from yay v13.0.1 (`LC_ALL=C yay -Qi bash`), long listing
+        // fields elided; `Depends On` carries a real soname constraint.
         let stdout = "\
-Name            : ripgrep
-Version         : 14.1.0-1
-Description     : A search tool that combines the usability of ag with the
-                  raw speed of grep
+Name            : bash
+Version         : 5.3.15-1
+Description     : The GNU Bourne Again shell
 Architecture    : x86_64
-URL             : https://github.com/BurntSushi/ripgrep
-Licenses        : MIT  UNLICENSE
-Depends On      : gcc-libs
-Optional Deps   : None
+URL             : https://www.gnu.org/software/bash/bash.html
+Licenses        : GPL-3.0-or-later
+Groups          : None
+Provides        : sh
+Depends On      : readline  libreadline.so=8-64  glibc  ncurses
+Optional Deps   : bash-completion: for tab completion [installed]
 ";
         let package = parse_info(stdout, InstallState::Installed).unwrap();
-        assert_eq!(package.name, "ripgrep");
-        assert_eq!(package.version.as_deref(), Some("14.1.0-1"));
-        assert!(package.description.unwrap().ends_with("raw speed of grep"));
-        assert_eq!(package.dependencies, Some(vec!["gcc-libs".to_string()]));
+        assert_eq!(package.name, "bash");
+        assert_eq!(package.version.as_deref(), Some("5.3.15-1"));
+        assert_eq!(
+            package.description.as_deref(),
+            Some("The GNU Bourne Again shell")
+        );
+        assert_eq!(
+            package.dependencies,
+            Some(vec![
+                "readline".to_string(),
+                "libreadline.so".to_string(),
+                "glibc".to_string(),
+                "ncurses".to_string()
+            ])
+        );
         assert_eq!(
             package.homepage.as_deref(),
-            Some("https://github.com/BurntSushi/ripgrep")
+            Some("https://www.gnu.org/software/bash/bash.html")
         );
     }
 

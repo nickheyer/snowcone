@@ -7,8 +7,10 @@
 //! shape and the pre-0.33 `name version` shape, since the global rework
 //! changed the CLI (it also replaced `pixi global upgrade` with `pixi
 //! global update`, which this backend uses). `pixi search` prints a
-//! key/value block for a single match and a table for several, and exits
-//! nonzero on "no match". pixi never prompts, so `assume_yes` is a no-op,
+//! key/value block for a single match; several matches get a
+//! `name (N versions)` summary on current pixi and a Package/Version
+//! table on older releases - both are parsed. It exits nonzero on "no
+//! match". pixi never prompts, so `assume_yes` is a no-op,
 //! and no global subcommand has a dry-run switch, so `--dry-run` requests
 //! error out. Pins use conda MatchSpec syntax (`name==version`). Everything
 //! is per-user - nothing elevates.
@@ -180,26 +182,33 @@ impl PackageManager for Manager {
     }
 
     async fn info(&self, name: &str) -> Result<Box<dyn Package>> {
-        let mut package = self
+        let remote = self
             .search_channels(name)
             .await?
             .into_iter()
-            .find(|package| package.name == name)
-            .ok_or_else(|| Error::NotFound(name.to_string()))?;
+            .find(|package| package.name == name);
         // The channel view says nothing about the global environments; one
         // list probe fills in the installed state and version.
-        if let Some(installed) = self
+        let installed = self
             .installed()
             .await?
             .into_iter()
-            .find(|installed| installed.name == package.name)
-        {
-            package.state = InstallState::Installed;
-            if installed.version.is_some() && installed.version != package.version {
-                package.latest_version = package.version.take();
-                package.version = installed.version;
+            .find(|installed| installed.name == name);
+        let package = match (remote, installed) {
+            (Some(mut package), Some(installed)) => {
+                package.state = InstallState::Installed;
+                if installed.version.is_some() && installed.version != package.version {
+                    package.latest_version = package.version.take();
+                    package.version = installed.version;
+                }
+                package
             }
-        }
+            (Some(package), None) => package,
+            // Installed from a channel the search does not cover; the
+            // global list entry is still authoritative.
+            (None, Some(installed)) => installed,
+            (None, None) => return Err(Error::NotFound(name.to_string())),
+        };
         Ok(Box::new(package))
     }
 
@@ -273,17 +282,79 @@ fn parse_global_list(stdout: &str) -> Vec<PixiPackage> {
         .collect()
 }
 
-/// `pixi search` output: a whitespace-aligned table when several packages
-/// match, a key/value detail block when exactly one does.
+/// `pixi search` output: several matches get a `name (N versions)`
+/// summary on current pixi and a whitespace-aligned table on older
+/// releases; a single match gets a key/value detail block.
 fn parse_search_output(stdout: &str) -> Vec<PixiPackage> {
     if let Some(packages) = parse_search_table(stdout) {
+        return packages;
+    }
+    if let Some(packages) = parse_search_compact(stdout) {
         return packages;
     }
     parse_search_detail(stdout).into_iter().collect()
 }
 
-/// The multi-match table: rows after a header line starting
-/// `Package Version …` (`None` when no such header exists).
+/// The multi-match summary current pixi prints: a `name (N versions)`
+/// header per package with `version build [subdir] channel` lines
+/// indented below it, plus dim `... and N more` hints (`None` when no
+/// such header exists).
+fn parse_search_compact(stdout: &str) -> Option<Vec<PixiPackage>> {
+    let mut packages: Vec<PixiPackage> = Vec::new();
+    let mut found_header = false;
+    for line in stdout.lines() {
+        if line.starts_with(char::is_whitespace) {
+            // The first (newest) version line under a header wins.
+            let mut parts = line.split_whitespace();
+            let Some(version) = parts.next() else {
+                continue;
+            };
+            if !version.starts_with(|c: char| c.is_ascii_digit()) {
+                continue;
+            }
+            if let Some(last) = packages.last_mut()
+                && last.version.is_none()
+            {
+                last.version = Some(version.to_string());
+                let _build = parts.next();
+                last.architecture = parts
+                    .next()
+                    .and_then(|subdir| subdir.strip_prefix('['))
+                    .and_then(|subdir| subdir.strip_suffix(']'))
+                    .map(str::to_string);
+                last.origin = parts.next().map(str::to_string);
+            }
+            continue;
+        }
+        let Some((name, rest)) = line.split_once(" (") else {
+            continue;
+        };
+        let Some((count, label)) = rest
+            .trim_end()
+            .strip_suffix(')')
+            .and_then(|rest| rest.split_once(' '))
+        else {
+            continue;
+        };
+        if name.contains(char::is_whitespace)
+            || count.is_empty()
+            || !count.chars().all(|c| c.is_ascii_digit())
+            || !matches!(label, "version" | "versions")
+        {
+            continue;
+        }
+        found_header = true;
+        packages.push(PixiPackage {
+            name: name.to_string(),
+            state: InstallState::Available,
+            ..Default::default()
+        });
+    }
+    found_header.then_some(packages)
+}
+
+/// The multi-match table older pixi prints: rows after a header line
+/// starting `Package Version …` (`None` when no such header exists).
 fn parse_search_table(stdout: &str) -> Option<Vec<PixiPackage>> {
     let mut lines = stdout.lines();
     loop {
@@ -345,11 +416,13 @@ fn parse_search_detail(stdout: &str) -> Option<PixiPackage> {
         }
         match key {
             "Name" => package.name = value.to_string(),
-            "Version" => package.version = Some(value.to_string()),
+            // The `Other Versions` trailer re-uses a `Version  Build`
+            // header line; the first (real) key wins.
+            "Version" if package.version.is_none() => package.version = Some(value.to_string()),
             "License" => package.license = Some(value.to_string()),
             "Subdir" => package.architecture = Some(value.to_string()),
             "Channel" => package.origin = Some(value.to_string()),
-            "Size" => package.download_size = value.parse().ok(),
+            "Size" => package.download_size = parse_size(value),
             _ => {}
         }
     }
@@ -357,6 +430,23 @@ fn parse_search_detail(stdout: &str) -> Option<PixiPackage> {
         package.dependencies = Some(dependencies);
     }
     (!package.name.is_empty()).then_some(package)
+}
+
+/// Sizes as pixi prints them: raw bytes on older releases, indicatif's
+/// binary units (`30.00 KiB`) today; anything else (like the `Not found.`
+/// placeholder) degrades to `None`.
+fn parse_size(value: &str) -> Option<u64> {
+    let mut parts = value.split_whitespace();
+    let number: f64 = parts.next()?.parse().ok()?;
+    let scale: u64 = match parts.next() {
+        None | Some("B") => 1,
+        Some("KiB") => 1 << 10,
+        Some("MiB") => 1 << 20,
+        Some("GiB") => 1 << 30,
+        Some("TiB") => 1 << 40,
+        _ => return None,
+    };
+    (number >= 0.0 && parts.next().is_none()).then(|| (number * scale as f64) as u64)
 }
 
 /// A package as pixi describes it.
@@ -455,6 +545,9 @@ Global install location: /home/nick/.pixi
 
     #[test]
     fn parses_search_detail_block() {
+        // Current pixi's detail view: `{:19} {}` key/value lines, an
+        // indicatif human-readable Size, and an `Other Versions` trailer
+        // whose `Version  Build` header must not clobber the real version.
         let stdout = "\
 ripgrep-14.1.1-h8fae777_1 (+ 3 builds)
 --------------------------------------
@@ -462,17 +555,21 @@ ripgrep-14.1.1-h8fae777_1 (+ 3 builds)
 Name                ripgrep
 Version             14.1.1
 Build               h8fae777_1
-Size                1642417
+Size                1.57 MiB
 License             MIT
+Timestamp           2024-06-09 07:37:33 UTC
 Subdir              linux-64
 File Name           ripgrep-14.1.1-h8fae777_1.conda
 URL                 https://conda.anaconda.org/conda-forge/linux-64/ripgrep-14.1.1-h8fae777_1.conda
+MD5                 6eb397e6dd950010cd0393c6d3d3e176
+SHA256              6eb397e6dd950010cd0393c6d3d3e176ecc9d20e4237a1a121b96bce8bb2e921
 Dependencies:
  - libgcc-ng >=12
 
 Other Versions (2):
-14.1.0
-14.0.3
+Version  Build
+14.1.0   he8a937b_0
+14.0.3   he8a937b_0
 ";
         let package = parse_search_output(stdout);
         assert_eq!(package.len(), 1);
@@ -480,17 +577,51 @@ Other Versions (2):
         assert_eq!(package[0].version.as_deref(), Some("14.1.1"));
         assert_eq!(package[0].license.as_deref(), Some("MIT"));
         assert_eq!(package[0].architecture.as_deref(), Some("linux-64"));
-        assert_eq!(package[0].download_size, Some(1642417));
+        // 1.57 MiB scales back to whole bytes.
+        assert_eq!(package[0].download_size, Some(1646264));
         assert_eq!(package[0].dependencies, Some(vec!["libgcc-ng".to_string()]));
         assert_eq!(package[0].state, InstallState::Available);
     }
 
     #[test]
-    fn parses_search_table() {
+    fn parses_raw_byte_sizes() {
+        // Pre-0.4x pixi printed the Size value as raw bytes.
+        assert_eq!(parse_size("1642417"), Some(1642417));
+        assert_eq!(parse_size("30.00 KiB"), Some(30720));
+        assert_eq!(parse_size("Not found."), None);
+    }
+
+    #[test]
+    fn parses_search_compact_summary() {
         let stdout = "\
-Package             Version    Channel
-ripgrep             14.1.1     conda-forge
-ripgrep-all         0.9.6      conda-forge
+ripgrep (3 versions)
+  14.1.1 h8fae777_1 [linux-64] conda-forge
+  14.1.0 he8a937b_0 [linux-64] conda-forge
+  ... and 1 more version (use -l to show more)
+
+ripgrep-all (1 version)
+  0.9.6 ha8f183a_0 [linux-64] conda-forge
+
+... and 2 more packages (use -n to show more)
+";
+        let packages = parse_search_output(stdout);
+        assert_eq!(packages.len(), 2);
+        assert_eq!(packages[0].name, "ripgrep");
+        assert_eq!(packages[0].version.as_deref(), Some("14.1.1"));
+        assert_eq!(packages[0].architecture.as_deref(), Some("linux-64"));
+        assert_eq!(packages[0].origin.as_deref(), Some("conda-forge"));
+        assert_eq!(packages[0].state, InstallState::Available);
+        assert_eq!(packages[1].name, "ripgrep-all");
+        assert_eq!(packages[1].version.as_deref(), Some("0.9.6"));
+    }
+
+    #[test]
+    fn parses_search_table() {
+        // Older pixi's multi-match table (`{:40} {:19} {:19}` columns).
+        let stdout = "\
+Package                                  Version             Channel
+ripgrep                                  14.1.1              conda-forge
+ripgrep-all                              0.9.6               conda-forge
 ";
         let packages = parse_search_output(stdout);
         assert_eq!(packages.len(), 2);

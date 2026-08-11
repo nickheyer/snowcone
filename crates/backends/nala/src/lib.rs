@@ -1,9 +1,10 @@
 //! Nala backend for snowcone.
 //!
 //! Drives nala, the friendlier apt frontend over the same dpkg database.
-//! The shipped nala (the Python 0.14/0.15 line) has no simulate flag at
-//! all, so every mutation errors under `--dry-run`. Queries pass
-//! `--no-color` (nala colors output even when piped) and run under
+//! Targets nala >= 0.15: `--no-color` only exists from 0.15.0, and older
+//! releases would reject it. Nala has no simulate flag at all, so every
+//! mutation errors under `--dry-run`. Queries pass `--no-color` (nala
+//! colors output even when piped) and run under
 //! `LC_ALL=C`, where nala swaps its tree glyphs for ASCII - the parsers
 //! accept both `├──`/`└──` and `+--`/`` `-- ``. `nala upgrade` accepts no
 //! package arguments, so targeted upgrades go through `install`, which

@@ -2,9 +2,11 @@
 //!
 //! EasyBuild (`eb`) is a build tool, not a database: software is described
 //! by easyconfig names (`zlib-1.2.13.eb`), so install specs get `.eb`
-//! appended and run through `eb <spec> --robot` to resolve dependencies.
-//! There is no uninstall verb at all - removal means deleting the install
-//! directory and its module file by hand - so `remove` errors honestly.
+//! appended and run through `eb <spec> --robot` to resolve dependencies -
+//! easyconfigs first, `--robot` last, because `--robot` swallows a
+//! following path argument (easybuild-framework #2086). There is no
+//! uninstall verb at all - removal means deleting the install directory
+//! and its module file by hand - so REMOVE is not advertised.
 //! Installed software really lives in the module system; the defensible
 //! subset here is `eb --list-installed-software`, which yields names but no
 //! versions. `--dry-run` is native to `eb` itself. Builds land in the
@@ -15,7 +17,8 @@ use std::path::PathBuf;
 use async_trait::async_trait;
 use snowcone_core::{
     BackendFactory, Capabilities, Cmd, Detection, Elevator, Error, HostInfo, InstallState,
-    ManagerKind, OpContext, Package, PackageManager, PackageRequest, Result, find_program,
+    ManagerKind, OpContext, Operation, Package, PackageManager, PackageRequest, Result,
+    find_program,
 };
 
 const ID: &str = "easybuild";
@@ -126,24 +129,31 @@ impl PackageManager for Manager {
     }
 
     fn capabilities(&self) -> Capabilities {
-        Capabilities::CORE | Capabilities::SEARCH
+        Capabilities::INSTALL
+            | Capabilities::LIST_INSTALLED
+            | Capabilities::INFO
+            | Capabilities::SEARCH
     }
 
+    /// Easyconfigs go first: `--robot` takes an optional robot-path
+    /// argument and would swallow a following `<spec>.eb`
+    /// (easybuild-framework #2086), so the flags trail the targets.
     async fn install(&self, packages: &[PackageRequest], ctx: &OpContext) -> Result<()> {
         reject_pins(packages)?;
-        let mut cmd = self.cmd().arg("--robot");
+        let mut cmd = self
+            .cmd()
+            .args(packages.iter().map(|package| easyconfig(&package.name)))
+            .arg("--robot");
         if ctx.dry_run {
             cmd = cmd.arg("--dry-run");
         }
-        cmd = cmd.args(packages.iter().map(|package| easyconfig(&package.name)));
         self.run(cmd, ctx).await
     }
 
+    /// EasyBuild has no uninstall verb; removal is deleting the install
+    /// directory and its module file by hand.
     async fn remove(&self, _packages: &[PackageRequest], _ctx: &OpContext) -> Result<()> {
-        Err(Error::Other(format!(
-            "{ID}: EasyBuild has no uninstall verb; remove the installation directory and \
-             its module file manually"
-        )))
+        Err(self.unsupported(Operation::Remove))
     }
 
     async fn list_installed(&self) -> Result<Vec<Box<dyn Package>>> {

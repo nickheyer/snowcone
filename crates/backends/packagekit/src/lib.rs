@@ -14,8 +14,8 @@ use std::path::PathBuf;
 use async_trait::async_trait;
 use snowcone_core::{
     BackendFactory, Capabilities, Cmd, CmdOutput, Detection, Elevator, Error, HostInfo,
-    InstallState, ManagerKind, OpContext, Package, PackageManager, PackageRequest, Result,
-    find_program,
+    InstallState, ManagerKind, OpContext, Operation, Package, PackageManager, PackageRequest,
+    Result, find_program,
 };
 
 const ID: &str = "packagekit";
@@ -139,6 +139,13 @@ impl PackageManager for Manager {
             | Capabilities::REFRESH
             | Capabilities::UPGRADE
             | Capabilities::LIST_OUTDATED
+    }
+
+    /// snowcone never prefixes sudo here, but the daemon authorizes every
+    /// mutation through polkit - a credential prompt is still coming, and
+    /// callers plan for it off this flag.
+    fn needs_elevation(&self, operation: Operation) -> bool {
+        operation.mutates()
     }
 
     async fn install(&self, packages: &[PackageRequest], ctx: &OpContext) -> Result<()> {

@@ -95,7 +95,10 @@ impl PackageManager for Manager {
     }
 
     fn capabilities(&self) -> Capabilities {
-        Capabilities::CORE | Capabilities::SEARCH | Capabilities::UPGRADE
+        Capabilities::CORE
+            | Capabilities::SEARCH
+            | Capabilities::UPGRADE
+            | Capabilities::LIST_OUTDATED
     }
 
     async fn install(&self, _packages: &[PackageRequest], _ctx: &OpContext) -> Result<()> {
@@ -182,6 +185,16 @@ impl PackageManager for Manager {
         )
         .await
     }
+
+    async fn list_outdated(&self) -> Result<Vec<Box<dyn Package>>> {
+        let out = self
+            .cmd()
+            .arg("outdated")
+            .capture(&self.elevator, None)
+            .await?
+            .require_success()?;
+        Ok(boxed(parse_outdated(&out.stdout)))
+    }
 }
 
 fn boxed(v: Vec<VpmPackage>) -> Vec<Box<dyn Package>> {
@@ -189,12 +202,15 @@ fn boxed(v: Vec<VpmPackage>) -> Vec<Box<dyn Package>> {
         .map(|p| Box::new(p) as Box<dyn Package>)
         .collect()
 }
+/// `v list`: one installed module id (`author.module`) per line, or the
+/// sentence `You have no modules installed.` - module ids never contain
+/// spaces, so sentence lines are dropped wholesale.
 fn parse_list(stdout: &str) -> Vec<VpmPackage> {
     stdout
         .lines()
         .filter_map(|line| {
-            let name = line.trim().trim_start_matches(['-', '*', ' ']).trim();
-            if name.is_empty() || name.eq_ignore_ascii_case("Installed packages:") {
+            let name = line.trim();
+            if name.is_empty() || name.contains(' ') {
                 None
             } else {
                 Some(VpmPackage {
@@ -207,26 +223,50 @@ fn parse_list(stdout: &str) -> Vec<VpmPackage> {
         })
         .collect()
 }
+/// `v search`: after a `Search results for `…`:` header, hits print as
+/// `1. markdown by pisaiah [pisaiah.markdown] (installed)` - the
+/// installable module id is the bracketed token; ` by author` and
+/// ` (installed)` are optional. Misses print `No module(s) found …`.
 fn parse_search(stdout: &str) -> Vec<VpmPackage> {
     stdout
         .lines()
         .filter_map(|line| {
-            let line = line.trim().trim_start_matches(['-', '*', ' ']).trim();
-            if line.is_empty()
-                || line.starts_with("Search results")
-                || line.starts_with("No module")
-            {
+            let line = line.trim();
+            let (_, rest) = line.split_once('[')?;
+            let (name, rest) = rest.split_once(']')?;
+            let name = name.trim();
+            if name.is_empty() {
                 return None;
             }
-            let (name, description) = line
-                .split_once(" - ")
-                .or_else(|| line.split_once('\t'))
-                .map_or((line, None), |(n, d)| (n, Some(d.trim().into())));
             Some(VpmPackage {
-                name: name.trim().into(),
+                name: name.into(),
                 version: None,
-                description,
-                state: InstallState::Available,
+                description: None,
+                state: if rest.contains("(installed)") {
+                    InstallState::Installed
+                } else {
+                    InstallState::Available
+                },
+            })
+        })
+        .collect()
+}
+/// `v outdated`: an `Outdated modules:` header with one indented module id
+/// per line, or `Modules are up to date.` / `No modules installed.` when
+/// there is nothing to report.
+fn parse_outdated(stdout: &str) -> Vec<VpmPackage> {
+    stdout
+        .lines()
+        .filter_map(|line| {
+            let name = line.trim();
+            if name.is_empty() || name.ends_with(':') || name.contains(' ') {
+                return None;
+            }
+            Some(VpmPackage {
+                name: name.into(),
+                version: None,
+                description: None,
+                state: InstallState::Upgradable,
             })
         })
         .collect()
@@ -237,14 +277,38 @@ mod tests {
     use super::*;
     #[test]
     fn parses_installed_names() {
-        let p = parse_list("Installed packages:\n  markdown\n  ui\n");
+        // `v list` prints bare module ids (vlang cmd/tools/vpm/vpm.v),
+        // or a sentence when nothing is installed.
+        let p = parse_list("pisaiah.markdown\nui\n");
         assert_eq!(p.len(), 2);
-        assert_eq!(p[0].name, "markdown");
+        assert_eq!(p[0].name, "pisaiah.markdown");
+        assert!(parse_list("You have no modules installed.\n").is_empty());
     }
     #[test]
-    fn parses_search_descriptions() {
-        let p = parse_search("markdown - Markdown parser\nui\tCross-platform UI\n");
-        assert_eq!(p[1].description.as_deref(), Some("Cross-platform UI"));
+    fn parses_search_hits() {
+        // Format from vlang cmd/tools/vpm/search.v:
+        // `${index}. ${name}${author}[${mod}]${installed}`.
+        let p = parse_search(
+            "Search results for `markdown`:\n\n\
+             1. markdown by pisaiah [pisaiah.markdown] (installed)\n\
+             2. vmarkdown [vmarkdown]\n",
+        );
+        assert_eq!(p.len(), 2);
+        assert_eq!(p[0].name, "pisaiah.markdown");
+        assert_eq!(p[0].state, InstallState::Installed);
+        assert_eq!(p[1].name, "vmarkdown");
+        assert_eq!(p[1].state, InstallState::Available);
+        assert!(parse_search("No module(s) found for `nope` .\n").is_empty());
+    }
+    #[test]
+    fn parses_outdated_modules() {
+        // Format from vlang cmd/tools/vpm/outdated.v.
+        let p = parse_outdated("Outdated modules:\n  pisaiah.markdown\n  ui\n");
+        assert_eq!(p.len(), 2);
+        assert_eq!(p[0].name, "pisaiah.markdown");
+        assert_eq!(p[0].state, InstallState::Upgradable);
+        assert!(parse_outdated("Modules are up to date.\n").is_empty());
+        assert!(parse_outdated("No modules installed.\n").is_empty());
     }
     #[test]
     fn rejects_pins() {

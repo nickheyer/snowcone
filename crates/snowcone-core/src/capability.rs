@@ -68,8 +68,13 @@ impl fmt::Display for Operation {
 }
 
 bitflags! {
-    /// What a backend can do. [`Capabilities::CORE`] is guaranteed by the
-    /// trait; the rest drive which operations `snow` offers per backend.
+    /// What a backend can do. Capabilities are the single source of truth:
+    /// a backend advertises exactly the operations that work, and election
+    /// only routes an operation to a member advertising its bit. A tool
+    /// that genuinely cannot perform one of the four core operations (bauh
+    /// has no CLI verbs, zig's cache is opaque, makedeb only builds and
+    /// installs) drops that bit and returns
+    /// [`Error::Unsupported`](crate::Error::Unsupported) from the method.
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     pub struct Capabilities: u32 {
         const INSTALL = 1 << 0;
@@ -87,7 +92,10 @@ bitflags! {
 }
 
 impl Capabilities {
-    /// The universal subset every backend must support.
+    /// The typical core set (install, remove, list-installed, info) -
+    /// a convenience for the majority of backends, not a guarantee. A
+    /// backend whose tool cannot perform one of these spells out the
+    /// union of what actually works instead.
     pub const CORE: Self = Self::INSTALL
         .union(Self::REMOVE)
         .union(Self::LIST_INSTALLED)

@@ -1,5 +1,6 @@
 //! Overlays: the confirmation modal (mutations, task cancellation, quit
-//! guard) and the help overlay generated from the keymap.
+//! guard), the sudo password modal, and the help overlay generated from
+//! the keymap.
 
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
@@ -79,6 +80,56 @@ impl ConfirmState {
             ],
         }
     }
+}
+
+/// The in-TUI credential prompt: collects a password for
+/// `Elevator::hold_with_password` so sudo never draws on the terminal
+/// while the TUI owns it. Holds the confirmed plans until validation
+/// succeeds; they dispatch from `App::finish_elevation`.
+pub struct PasswordState {
+    /// Confirmed but not yet queued - dispatched after validation.
+    pub plans: Vec<MutationPlan>,
+    /// The password being typed. Never rendered; only its length is.
+    pub input: String,
+    /// Last failed attempt's message, cleared on the next submit.
+    pub error: Option<String>,
+    /// A validation is in flight; input is ignored until it reports.
+    pub validating: bool,
+}
+
+impl PasswordState {
+    pub fn new(plans: Vec<MutationPlan>) -> Self {
+        Self {
+            plans,
+            input: String::new(),
+            error: None,
+            validating: false,
+        }
+    }
+}
+
+pub fn draw_password(frame: &mut Frame, state: &PasswordState) {
+    let area = centered(frame.area(), 56, 7);
+    frame.render_widget(Clear, area);
+    let block = Block::bordered()
+        .title(" Credentials required ")
+        .border_style(Style::new().fg(Color::Yellow));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    let mut lines = vec![
+        Line::from("This batch needs root - enter your sudo password."),
+        Line::from(vec![
+            Span::from("password: ").fg(Color::DarkGray),
+            Span::from("•".repeat(state.input.chars().count())),
+            Span::from(if state.validating { "" } else { "█" }).fg(Color::Yellow),
+        ]),
+    ];
+    lines.push(match (&state.error, state.validating) {
+        (_, true) => Line::from("validating…").fg(Color::Yellow),
+        (Some(error), false) => Line::from(format!("{error} - try again")).fg(Color::Red),
+        (None, false) => Line::from(""),
+    });
+    frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), inner);
 }
 
 pub fn draw_confirm(frame: &mut Frame, state: &ConfirmState) {

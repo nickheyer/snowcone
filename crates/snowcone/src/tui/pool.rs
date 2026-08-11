@@ -166,13 +166,15 @@ fn build_plan(
     names: &[String],
 ) -> MutationPlan {
     let needs_elevation = manager.needs_elevation(operation);
-    // needs_elevation is a safety net over the policy table: it can only
-    // force Interactive, never Captured.
-    let mode = if needs_elevation {
-        ExecMode::Interactive
-    } else {
-        policy::exec_mode(manager.id())
-    };
+    // Mode comes from the central policy table alone. Elevation no longer
+    // forces a suspension: the TUI collects credentials in its own modal
+    // (`Elevator::hold_with_password`) and keeps them warm for the run,
+    // and captured commands use the helper's never-prompt flag so a cold
+    // cache fails cleanly instead of painting a prompt over the TUI. The
+    // dispatcher still downgrades Captured to Interactive when a plan
+    // needs elevation and no warm session exists (see
+    // `App::dispatch_pending`).
+    let mode = policy::exec_mode(manager.id());
     let title = if names.is_empty() {
         format!("{operation} everything ({})", manager.id())
     } else {
@@ -342,14 +344,17 @@ mod tests {
     }
 
     #[test]
-    fn elevation_forces_interactive_mode() {
+    fn elevated_plans_keep_the_policy_mode() {
         let pool = pool();
         let a = row("apt", "ripgrep");
         let plan = pool
             .plan_mutation(Operation::Install, &[&a], &BTreeSet::new())
             .unwrap();
+        // apt is policy-listed Captured; needs_elevation stays true so the
+        // dispatcher knows to collect credentials (or downgrade to
+        // Interactive when it can't).
         assert!(plan.needs_elevation);
-        assert_eq!(plan.mode, ExecMode::Interactive);
+        assert_eq!(plan.mode, ExecMode::Captured);
     }
 
     #[test]

@@ -1,7 +1,9 @@
 //! Host introspection: os-release, architecture, privileges, and locating
 //! backend executables.
 
-use std::path::{Path, PathBuf};
+#[cfg(unix)]
+use std::path::Path;
+use std::path::PathBuf;
 
 /// Parsed `/etc/os-release` (or `/usr/lib/os-release`).
 #[derive(Clone, Debug, Default)]
@@ -77,22 +79,44 @@ impl HostInfo {
         Self {
             os: OsRelease::load(),
             arch: std::env::consts::ARCH,
-            is_root: unsafe { libc::geteuid() } == 0,
+            is_root: effective_root(),
         }
     }
 }
 
-/// Locate a program on `PATH`, falling back to the sbin directories that
-/// non-root user PATHs often omit.
-pub fn find_program(name: &str) -> Option<PathBuf> {
-    which::which(name).ok().or_else(|| {
-        ["/usr/local/sbin", "/usr/sbin", "/sbin"]
-            .iter()
-            .map(|dir| Path::new(dir).join(name))
-            .find(|candidate| is_executable(candidate))
-    })
+#[cfg(unix)]
+fn effective_root() -> bool {
+    unsafe { libc::geteuid() == 0 }
 }
 
+/// Windows has no euid; elevation is per-process (UAC) and the helpers in
+/// [`Elevator`](crate::Elevator) don't exist, so mutations that need
+/// system rights report through `Error::ElevationUnavailable` instead.
+#[cfg(not(unix))]
+fn effective_root() -> bool {
+    false
+}
+
+/// Locate a program on `PATH`, falling back (on Unix) to the sbin
+/// directories that non-root user PATHs often omit. `which` handles
+/// Windows' PATHEXT resolution by itself.
+pub fn find_program(name: &str) -> Option<PathBuf> {
+    #[cfg(unix)]
+    {
+        which::which(name).ok().or_else(|| {
+            ["/usr/local/sbin", "/usr/sbin", "/sbin"]
+                .iter()
+                .map(|dir| Path::new(dir).join(name))
+                .find(|candidate| is_executable(candidate))
+        })
+    }
+    #[cfg(not(unix))]
+    {
+        which::which(name).ok()
+    }
+}
+
+#[cfg(unix)]
 fn is_executable(path: &Path) -> bool {
     use std::os::unix::fs::PermissionsExt;
     std::fs::metadata(path)

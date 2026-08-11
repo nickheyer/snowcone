@@ -226,7 +226,12 @@ impl PackageManager for Manager {
     }
 
     fn capabilities(&self) -> Capabilities {
-        Capabilities::CORE | Capabilities::SEARCH
+        // No REMOVE: lein has no verb that removes a dependency, so the
+        // bit is dropped and the method explains the manual workflow.
+        Capabilities::INSTALL
+            | Capabilities::LIST_INSTALLED
+            | Capabilities::INFO
+            | Capabilities::SEARCH
     }
 
     async fn install(&self, packages: &[PackageRequest], ctx: &OpContext) -> Result<()> {

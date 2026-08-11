@@ -6,9 +6,11 @@
 //! `hatch python`: management of standalone Python distributions
 //! (`hatch python install 3.12`). That is what this backend drives, so
 //! "packages" here are distribution names like `3.12` or `pypy3.10`, not
-//! PyPI projects. `hatch python show` renders rich tables, so reads run
-//! with NO_COLOR under LC_ALL=C and the parser strips the box drawing.
-//! No `hatch python` verb has a dry-run, so `dry_run` errors.
+//! PyPI projects. `hatch python update NAMES...` upgrades installed
+//! distributions in place, with `all` standing in for the whole set.
+//! `hatch python show` renders rich tables, so reads run with NO_COLOR
+//! under LC_ALL=C and the parser strips the box drawing. No `hatch python`
+//! verb has a dry-run, so `dry_run` errors.
 
 use std::path::PathBuf;
 
@@ -128,7 +130,7 @@ impl PackageManager for Manager {
     }
 
     fn capabilities(&self) -> Capabilities {
-        Capabilities::CORE
+        Capabilities::CORE | Capabilities::UPGRADE
     }
 
     async fn install(&self, packages: &[PackageRequest], ctx: &OpContext) -> Result<()> {
@@ -178,6 +180,23 @@ impl PackageManager for Manager {
             .or_else(|| pythons.iter().position(|python| python.name == name))
             .ok_or_else(|| Error::NotFound(name.to_string()))?;
         Ok(Box::new(pythons.swap_remove(index)))
+    }
+
+    async fn upgrade(&self, packages: &[PackageRequest], ctx: &OpContext) -> Result<()> {
+        reject_pins(packages)?;
+        if ctx.dry_run {
+            return Err(self.no_dry_run("upgrade"));
+        }
+        // `hatch python update NAMES...` takes multiple names in one
+        // invocation; the literal name `all` covers every installed
+        // distribution.
+        let mut cmd = self.cmd().args(["python", "update"]);
+        if packages.is_empty() {
+            cmd = cmd.arg("all");
+        } else {
+            cmd = cmd.args(packages.iter().map(|package| package.name.as_str()));
+        }
+        self.run(cmd, ctx).await
     }
 }
 

@@ -16,6 +16,8 @@ use crate::cli::{Cli, Command};
 async fn main() -> anyhow::Result<()> {
     // Rust ignores SIGPIPE by default, which turns `snow … | head` into a
     // panic when the pipe closes. Restore the Unix default: exit quietly.
+    // (No SIGPIPE concept on Windows.)
+    #[cfg(unix)]
     unsafe {
         libc::signal(libc::SIGPIPE, libc::SIG_DFL);
     }

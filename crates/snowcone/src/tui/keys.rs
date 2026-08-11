@@ -16,6 +16,7 @@ pub enum ModeKind {
     Normal,
     Input,
     Confirm,
+    Password,
     Help,
 }
 
@@ -66,6 +67,11 @@ pub enum Action {
     ConfirmNo,
     ConfirmMove,
     ConfirmActivate,
+    PasswordChar(char),
+    PasswordBackspace,
+    PasswordClear,
+    PasswordSubmit,
+    PasswordCancel,
     HelpClose,
     /// Key is real but meaningless here; show where it works instead.
     Hint(&'static str),
@@ -80,6 +86,7 @@ pub fn map_key(ctx: KeyCtx, key: KeyEvent) -> Option<Action> {
     match ctx.mode {
         ModeKind::Help => help_key(key),
         ModeKind::Confirm => confirm_key(key),
+        ModeKind::Password => password_key(key),
         ModeKind::Input => input_key(key),
         ModeKind::Normal => normal_key(ctx, key),
     }
@@ -99,6 +106,24 @@ fn confirm_key(key: KeyEvent) -> Option<Action> {
         }
         KeyCode::Char('h') | KeyCode::Char('l') => Some(Action::ConfirmMove),
         KeyCode::Enter => Some(Action::ConfirmActivate),
+        _ => None,
+    }
+}
+
+/// Like input mode, but with its own actions so every other key is inert -
+/// a password prompt must never trigger navigation.
+fn password_key(key: KeyEvent) -> Option<Action> {
+    if key.modifiers.contains(KeyModifiers::CONTROL) {
+        return match key.code {
+            KeyCode::Char('u') => Some(Action::PasswordClear),
+            _ => None,
+        };
+    }
+    match key.code {
+        KeyCode::Enter => Some(Action::PasswordSubmit),
+        KeyCode::Esc => Some(Action::PasswordCancel),
+        KeyCode::Backspace => Some(Action::PasswordBackspace),
+        KeyCode::Char(c) => Some(Action::PasswordChar(c)),
         _ => None,
     }
 }
@@ -373,6 +398,14 @@ pub fn help_sections() -> &'static [(&'static str, &'static [HelpEntry])] {
                 ("Enter", "activate", "press the highlighted button"),
             ],
         ),
+        (
+            "Password prompt",
+            &[
+                ("Enter", "submit", "validate the password with sudo"),
+                ("Esc", "cancel", "abort the whole batch"),
+                ("Ctrl-U", "clear", "wipe what was typed"),
+            ],
+        ),
     ]
 }
 
@@ -498,6 +531,37 @@ mod tests {
             ctrl('u'),
         ] {
             assert!(map_key(ctx(ModeKind::Input, Tab::Search), k).is_some());
+        }
+        // Password prompt section.
+        for k in [
+            key(KeyCode::Char('a')),
+            key(KeyCode::Backspace),
+            key(KeyCode::Enter),
+            key(KeyCode::Esc),
+            ctrl('u'),
+        ] {
+            assert!(map_key(ctx(ModeKind::Password, Tab::Search), k).is_some());
+        }
+    }
+
+    /// A password prompt must never leak keystrokes into navigation: every
+    /// mapped action is a Password* action, and non-text keys are inert.
+    #[test]
+    fn password_mode_maps_only_password_actions() {
+        let pw = ctx(ModeKind::Password, Tab::Search);
+        for k in [
+            key(KeyCode::Char('q')),
+            key(KeyCode::Char('j')),
+            key(KeyCode::Char('1')),
+            key(KeyCode::Char('/')),
+        ] {
+            assert!(
+                matches!(map_key(pw, k), Some(Action::PasswordChar(_))),
+                "{k:?} escaped the password prompt"
+            );
+        }
+        for k in [key(KeyCode::Tab), key(KeyCode::Left), key(KeyCode::Down)] {
+            assert_eq!(map_key(pw, k), None, "{k:?} escaped the password prompt");
         }
     }
 

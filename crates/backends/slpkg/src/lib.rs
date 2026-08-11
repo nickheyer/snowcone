@@ -2,13 +2,17 @@
 //!
 //! slpkg's verbs have been stable since the 4.x rewrite (`update`,
 //! `upgrade`, `install`, `remove`, `search`, `--yes`), but its *output* is
-//! a colorized table that shifts between major versions - so parsers strip
-//! ANSI codes and accept only lines carrying a real package token, the
-//! installed list and info come straight from the pkgtools database slpkg
-//! manages, and the outdated listing leans on `upgrade --check` (modern
-//! slpkg). Nothing has a simulate mode, so dry runs error instead of
-//! acting. There is no targeted upgrade verb - installing an installed
-//! package pulls the newest version the repositories carry.
+//! colorized and shifts between major versions - so parsers strip ANSI
+//! codes and match current slpkg's shapes defensively. Search runs with
+//! `--pkg-version` so every result row carries a version column; current
+//! slpkg prints `repo : name [installed] version` rows when searching all
+//! repositories and drops the leading repo column for a single one. The
+//! outdated listing leans on `upgrade --check`, which prints a columnar
+//! candidates table between `===` rules. The installed list and info come
+//! straight from the pkgtools database slpkg manages. Nothing has a
+//! simulate mode, so dry runs error instead of acting. There is no
+//! targeted upgrade verb - installing an installed package pulls the
+//! newest version the repositories carry.
 
 use std::path::{Path, PathBuf};
 
@@ -21,7 +25,10 @@ use snowcone_core::{
 
 const ID: &str = "slpkg";
 const PROGRAMS: &[&str] = &["slpkg"];
-const DATABASE_DIRS: [&str; 2] = ["/var/lib/pkgtools/packages", "/var/log/packages"];
+/// Slackware's package database is /var/log/packages, 15.0 included
+/// (/var/lib/pkgtools holds setup files and removed_packages, not the
+/// installed set); the pkgtools path stays as a defensive fallback only.
+const DATABASE_DIRS: [&str; 2] = ["/var/log/packages", "/var/lib/pkgtools/packages"];
 
 pub fn factory() -> Box<dyn BackendFactory> {
     Box::new(Factory)
@@ -179,9 +186,11 @@ impl PackageManager for Manager {
     }
 
     async fn search(&self, query: &str) -> Result<Vec<Box<dyn Package>>> {
+        // `--pkg-version` puts a version column on every result row, which
+        // is also what separates package rows from narration when parsing.
         let output = self
             .query()
-            .arg("search")
+            .args(["search", "--pkg-version"])
             .arg(query)
             .capture(&self.elevator, None)
             .await?;
@@ -257,8 +266,8 @@ fn mark_installed(packages: &mut [SlpkgPackage], installed: &[SlpkgPackage]) {
     }
 }
 
-/// The installed-package database directory, preferring the modern
-/// location over the pre-15.0 one.
+/// The installed-package database directory: /var/log/packages wherever
+/// it exists, the pkgtools path only as a fallback.
 fn database_dir() -> &'static Path {
     DATABASE_DIRS
         .iter()
@@ -377,26 +386,39 @@ fn parse_size(text: &str) -> Option<u64> {
     Some((number * factor) as u64)
 }
 
-/// `slpkg search`: colorized rows whose exact layout shifts across major
-/// versions - a line counts only when (after ANSI stripping and an optional
-/// `repo:` prefix) it leads with a real package token; narration lines
-/// carry no such token and fall out.
+/// `slpkg search --pkg-version`: one row per match. Searching every
+/// repository prints `repo : name [installed] version` (the colon is its
+/// own column); a single-repository search drops the leading repo column.
+/// Narration ("Searching... Done", "Found N packages.") never fits those
+/// arities with a version-shaped final column, so it falls out. slpkg
+/// prints `N/A` when a repository lists no version.
 fn parse_search(stdout: &str) -> Vec<SlpkgPackage> {
     stdout
         .lines()
         .filter_map(|raw| {
             let line = strip_ansi(raw);
-            let mut tokens = line.split_whitespace();
-            let first = tokens.next()?;
-            let (origin, token) = match first.strip_suffix(':') {
-                Some(repo) if !repo.is_empty() => (Some(repo.to_string()), tokens.next()?),
-                _ => (None, first),
+            let mut tokens: Vec<&str> = line.split_whitespace().collect();
+            let origin = match tokens.as_slice() {
+                [repo, ":", ..] => {
+                    let repo = (*repo).to_string();
+                    tokens.drain(..2);
+                    Some(repo)
+                }
+                _ => None,
             };
-            let (name, version, arch) = split_token(token)?;
+            let (name, version) = match tokens.as_slice() {
+                [name, version] => (*name, *version),
+                [name, "[installed]", version] => (*name, *version),
+                _ => return None,
+            };
+            if !(version.starts_with(|c: char| c.is_ascii_digit()) || version == "N/A") {
+                return None;
+            }
+            // The `[installed]` marker is dropped rather than trusted: the
+            // caller re-derives install state from the pkgtools database.
             Some(SlpkgPackage {
-                name,
-                version: Some(version),
-                architecture: arch,
+                name: name.to_string(),
+                version: Some(version.to_string()).filter(|version| version != "N/A"),
                 origin,
                 state: InstallState::Available,
                 ..Default::default()
@@ -405,65 +427,47 @@ fn parse_search(stdout: &str) -> Vec<SlpkgPackage> {
         .collect()
 }
 
-/// `slpkg upgrade --check`: only `installed -> candidate` arrow lines are
-/// trusted; the candidate side may be a full package token or a bare
-/// version.
+/// `slpkg upgrade --check`: a columnar candidates table between `===`
+/// rules - `name repo_version repo_build installed_version
+/// installed_build repo` per upgrade row. Removal/addition candidate rows
+/// print one side's columns empty (four tokens) and fall out; the header
+/// row's `Build` labels are not digit-led and fall out with the
+/// narration.
 fn parse_check(stdout: &str) -> Vec<SlpkgPackage> {
     stdout
         .lines()
         .filter_map(|raw| {
             let line = strip_ansi(raw);
-            let (left, right) = line.split_once("->")?;
-            let left_token = left.split_whitespace().next_back()?;
-            let right_token = right.split_whitespace().next()?;
-            let (name, version, arch) = split_token(left_token)?;
-            let latest = match split_token(right_token) {
-                Some((_, latest, _)) => latest,
-                None if right_token.starts_with(|c: char| c.is_ascii_digit()) => {
-                    right_token.to_string()
-                }
-                None => return None,
-            };
-            Some(SlpkgPackage {
+            let tokens: Vec<&str> = line.split_whitespace().collect();
+            let [
                 name,
-                version: Some(version),
-                latest_version: Some(latest),
-                architecture: arch,
+                repo_version,
+                repo_build,
+                installed_version,
+                installed_build,
+                repo,
+            ] = tokens.as_slice()
+            else {
+                return None;
+            };
+            let digit_led = |token: &str| token.starts_with(|c: char| c.is_ascii_digit());
+            if !digit_led(repo_version)
+                || !digit_led(repo_build)
+                || !digit_led(installed_version)
+                || !digit_led(installed_build)
+            {
+                return None;
+            }
+            Some(SlpkgPackage {
+                name: (*name).to_string(),
+                version: Some((*installed_version).to_string()),
+                latest_version: Some((*repo_version).to_string()),
+                origin: Some((*repo).to_string()),
                 state: InstallState::Upgradable,
                 ..Default::default()
             })
         })
         .collect()
-}
-
-/// A package token: the full Slackware `name-version-arch-build` triplet
-/// when the version and build fields lead with digits, else nix's
-/// convention that the version starts at the first dash followed by a
-/// digit (`nano-7.2`); anything without a version is not a package token.
-fn split_token(token: &str) -> Option<(String, String, Option<String>)> {
-    let fields: Vec<&str> = token.rsplitn(4, '-').collect();
-    if let [build, arch, version, name] = fields.as_slice()
-        && !name.is_empty()
-        && version.starts_with(|c: char| c.is_ascii_digit())
-        && build.starts_with(|c: char| c.is_ascii_digit())
-        && !arch.is_empty()
-    {
-        return Some((
-            (*name).to_string(),
-            (*version).to_string(),
-            Some((*arch).to_string()),
-        ));
-    }
-    for (idx, _) in token.match_indices('-') {
-        if token[idx + 1..]
-            .chars()
-            .next()
-            .is_some_and(|c| c.is_ascii_digit())
-        {
-            return Some((token[..idx].to_string(), token[idx + 1..].to_string(), None));
-        }
-    }
-    None
 }
 
 /// Remove ANSI escape sequences (slpkg colorizes everything).
@@ -550,30 +554,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn splits_full_triplets_and_short_tokens() {
-        let (name, version, arch) = split_token("mozilla-nss-3.101-x86_64-1").unwrap();
-        assert_eq!(name, "mozilla-nss");
-        assert_eq!(version, "3.101");
-        assert_eq!(arch.as_deref(), Some("x86_64"));
-
-        let (name, version, arch) = split_token("nano-7.2").unwrap();
-        assert_eq!(name, "nano");
-        assert_eq!(version, "7.2");
-        assert_eq!(arch, None);
-
-        assert!(split_token("narration").is_none());
-        assert!(split_token("The").is_none());
-    }
-
-    #[test]
-    fn parses_search_rows_and_skips_narration() {
+    fn parses_all_repo_search_rows_and_skips_narration() {
         let stdout = "\
-The list below shows the repo packages:
+Searching... Done
 
-sbo: nano-7.2
-slack: mozilla-nss-3.101-x86_64-1
+sbo   : nano                    7.2
+slack : mozilla-nss [installed] 3.101
 
-Total found 2 packages.
+Found 2 packages.
 ";
         let packages = parse_search(stdout);
         assert_eq!(packages.len(), 2);
@@ -581,31 +569,55 @@ Total found 2 packages.
         assert_eq!(packages[0].version.as_deref(), Some("7.2"));
         assert_eq!(packages[0].origin.as_deref(), Some("sbo"));
         assert_eq!(packages[1].name, "mozilla-nss");
-        assert_eq!(packages[1].architecture.as_deref(), Some("x86_64"));
+        assert_eq!(packages[1].version.as_deref(), Some("3.101"));
         assert_eq!(packages[1].origin.as_deref(), Some("slack"));
     }
 
     #[test]
-    fn parses_colorized_output() {
-        let stdout = "\u{1b}[1;32msbo:\u{1b}[0m nano-7.2\n";
+    fn parses_single_repo_search_rows() {
+        let stdout = "\
+Searching... Done
+
+nano                    7.2
+nano-syntax [installed] N/A
+
+Does not match any package.
+";
         let packages = parse_search(stdout);
-        assert_eq!(packages.len(), 1);
+        assert_eq!(packages.len(), 2);
         assert_eq!(packages[0].name, "nano");
+        assert_eq!(packages[0].origin, None);
+        assert_eq!(packages[1].name, "nano-syntax");
+        assert_eq!(packages[1].version, None);
     }
 
     #[test]
-    fn parses_upgrade_check_arrows() {
-        let stdout = "\
-The list below shows the packages that will be upgraded:
+    fn parses_colorized_output() {
+        let stdout = "sbo : nano [\u{1b}[32minstalled\u{1b}[0m] 7.2\n";
+        let packages = parse_search(stdout);
+        assert_eq!(packages.len(), 1);
+        assert_eq!(packages[0].name, "nano");
+        assert_eq!(packages[0].version.as_deref(), Some("7.2"));
+    }
 
-nano-7.2 -> 8.0
-mozilla-nss-3.101-x86_64-1 -> mozilla-nss-3.107-x86_64-1
+    #[test]
+    fn parses_upgrade_check_table() {
+        let stdout = "\
+===============================================================================
+packages           Repository      Build  Installed       Build            Repo
+===============================================================================
+nano               8.0             1      7.2             1                 sbo
+mozilla-nss        3.107           1      3.101           1               slack
+removed-pkg        1.0             1                                      slack
+===============================================================================
+Total packages: 2 upgraded, 1 removed and 0 added.
 ";
         let packages = parse_check(stdout);
         assert_eq!(packages.len(), 2);
         assert_eq!(packages[0].name, "nano");
         assert_eq!(packages[0].version.as_deref(), Some("7.2"));
         assert_eq!(packages[0].latest_version.as_deref(), Some("8.0"));
+        assert_eq!(packages[0].origin.as_deref(), Some("sbo"));
         assert_eq!(packages[1].latest_version.as_deref(), Some("3.107"));
         assert!(packages.iter().all(|p| p.state == InstallState::Upgradable));
     }

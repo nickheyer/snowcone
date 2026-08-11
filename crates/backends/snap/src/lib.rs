@@ -193,8 +193,9 @@ impl PackageManager for Manager {
             .arg(query)
             .capture(&self.elevator, None)
             .await?;
-        // An empty result is an error to snapd, not to us.
-        if !output.success() && output.stderr.contains("no snaps found") {
+        // An empty result is an error to snapd, not to us: it complains
+        // `error: no matching snaps for "<query>"` on stderr.
+        if !output.success() && output.stderr.contains("no matching snaps for") {
             return Ok(Vec::new());
         }
         let output = output.require_success()?;

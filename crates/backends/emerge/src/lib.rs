@@ -396,7 +396,9 @@ fn parse_size(value: &str) -> Option<u64> {
 
 /// `emerge --pretend` merge lines: `[ebuild  U  ] category/name-version
 /// [old-version] …`; only lines whose flag field contains `U` (replacing an
-/// installed version) are upgrades.
+/// installed version) are upgrades. Per man emerge, `D` marks a Downgrade -
+/// `UD` is an update to a *lower* version - so `D`-flagged lines are not
+/// genuine updates and are excluded.
 fn parse_pretend(stdout: &str) -> Vec<EmergePackage> {
     stdout
         .lines()
@@ -405,7 +407,7 @@ fn parse_pretend(stdout: &str) -> Vec<EmergePackage> {
                 .strip_prefix("[ebuild")
                 .or_else(|| line.strip_prefix("[binary"))?;
             let (flags, rest) = rest.split_once(']')?;
-            if !flags.contains('U') {
+            if !flags.contains('U') || flags.contains('D') {
                 return None;
             }
             let mut parts = rest.split_whitespace();
@@ -566,9 +568,10 @@ Calculating dependencies... done!
 [ebuild     U  ] sys-apps/portage-3.0.66.1 [3.0.65] USE=\"rsync-verify\"
 [ebuild  N     ] dev-libs/libffi-3.4.6
 [ebuild   R    ] sys-apps/sandbox-2.38
+[ebuild    UD  ] media-libs/libpng-1.6.42 [1.6.43]
 [blocks b      ] <sys-apps/openrc-0.54
 
-Total: 3 packages (1 upgrade, 1 new, 1 reinstall)
+Total: 4 packages (1 upgrade, 1 new, 1 reinstall, 1 downgrade)
 ";
         let packages = parse_pretend(stdout);
         assert_eq!(packages.len(), 1);

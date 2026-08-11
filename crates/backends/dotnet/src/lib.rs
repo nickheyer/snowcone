@@ -6,10 +6,10 @@
 //! line under `LC_ALL=C` (the SDK localizes its output), with
 //! `DOTNET_NOLOGO` set because the first-run welcome banner contains dashed
 //! lines of its own. dotnet never prompts and no tool verb has a dry-run.
-//! There is no native update-all or outdated verb either: a full upgrade
-//! loops `dotnet tool update` over the installed list, and outdated
-//! compares each installed tool against the registry's latest via
-//! `dotnet tool search`.
+//! A full upgrade goes through `dotnet tool update --all` (SDK 7+), falling
+//! back to one `dotnet tool update` per installed tool on SDKs that reject
+//! the flag. There is no native outdated verb: outdated compares each
+//! installed tool against the registry's latest via `dotnet tool search`.
 
 use std::path::PathBuf;
 
@@ -96,14 +96,13 @@ impl Manager {
     }
 
     /// Registry matches for a query, from the `dotnet tool search` table.
-    async fn search_registry(&self, query: &str) -> Result<Vec<DotnetPackage>> {
-        let output = self
-            .query()
-            .args(["tool", "search"])
-            .arg(query)
-            .capture(&self.elevator, None)
-            .await?
-            .require_success()?;
+    /// `take` widens the paging past the API's default of 20 results.
+    async fn search_registry(&self, query: &str, take: Option<u32>) -> Result<Vec<DotnetPackage>> {
+        let mut cmd = self.query().args(["tool", "search"]).arg(query);
+        if let Some(take) = take {
+            cmd = cmd.arg("--take").arg(take.to_string());
+        }
+        let output = cmd.capture(&self.elevator, None).await?.require_success()?;
         Ok(parse_table(&output.stdout, InstallState::Available))
     }
 }
@@ -288,7 +287,7 @@ impl PackageManager for Manager {
 
     async fn search(&self, query: &str) -> Result<Vec<Box<dyn Package>>> {
         Ok(self
-            .search_registry(query)
+            .search_registry(query, None)
             .await?
             .into_iter()
             .map(|package| Box::new(package) as Box<dyn Package>)
@@ -299,21 +298,26 @@ impl PackageManager for Manager {
         if ctx.dry_run {
             return Err(Error::Other(format!("{ID}: update has no dry-run mode")));
         }
-        // No update-all verb exists, so an empty request set loops over
-        // the installed table.
-        let targets: Vec<PackageRequest> = if packages.is_empty() {
-            self.installed()
-                .await?
-                .into_iter()
-                .map(|package| PackageRequest {
-                    name: package.name,
-                    version: None,
-                })
-                .collect()
-        } else {
-            packages.to_vec()
-        };
-        for package in targets {
+        if packages.is_empty() {
+            // `--all` (SDK 7+) updates the whole set in one pass. SDKs too
+            // old to know the flag exit non-zero immediately, so any
+            // failure falls back to one `tool update` per installed tool -
+            // update is idempotent, so a re-run after a mid-set failure
+            // only repeats no-op updates.
+            let all = self.cmd().args(["tool", "update", "--global", "--all"]);
+            if self.run(all, ctx).await.is_ok() {
+                return Ok(());
+            }
+            for package in self.installed().await? {
+                let cmd = self
+                    .cmd()
+                    .args(["tool", "update", "--global"])
+                    .arg(&package.name);
+                self.run(cmd, ctx).await?;
+            }
+            return Ok(());
+        }
+        for package in packages {
             let mut cmd = self.cmd().args(["tool", "update", "--global"]);
             if let Some(version) = &package.version {
                 cmd = cmd.arg("--version").arg(version);
@@ -325,11 +329,14 @@ impl PackageManager for Manager {
 
     async fn list_outdated(&self) -> Result<Vec<Box<dyn Package>>> {
         // No native outdated verb: ask the registry for each installed
-        // tool's latest version and compare.
+        // tool's latest version and compare. `--take` widens the paging
+        // well past the 20-result default so an exact id is unlikely to
+        // fall off the page; a tool that still doesn't surface in its own
+        // search results is silently skipped.
         let mut outdated = Vec::new();
         for installed in self.installed().await? {
             let latest = self
-                .search_registry(&installed.name)
+                .search_registry(&installed.name, Some(200))
                 .await?
                 .into_iter()
                 .find(|found| found.name.eq_ignore_ascii_case(&installed.name))

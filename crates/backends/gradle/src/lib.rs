@@ -104,7 +104,9 @@ impl PackageManager for Manager {
     }
 
     fn capabilities(&self) -> Capabilities {
-        Capabilities::CORE
+        // No INSTALL or REMOVE: gradle has no imperative package verbs, so
+        // those bits are dropped and the methods explain why.
+        Capabilities::LIST_INSTALLED | Capabilities::INFO
     }
 
     async fn install(&self, _packages: &[PackageRequest], _ctx: &OpContext) -> Result<()> {

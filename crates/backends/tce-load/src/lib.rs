@@ -1,19 +1,19 @@
 //! Tiny Core extensions backend for snowcone.
 //!
 //! Tiny Core mounts .tcz extensions into RAM. `tce-load -wi` downloads and
-//! loads them as the regular user (the tool refuses root), so nothing is
-//! elevated and there are no prompts for `assume_yes` to answer. The
-//! loaded-extension list comes from the separate `tce-status -i` tool.
-//! Tiny Core has no uninstall verb at all - extensions disappear by
-//! deleting the .tcz and its onboot.lst entry and rebooting - so `remove`
-//! explains that instead of attempting filesystem surgery.
+//! loads them as the regular user - no elevation is needed and there are
+//! no prompts for `assume_yes` to answer. The loaded-extension list comes
+//! from the separate `tce-status -i` tool. Tiny Core has no uninstall
+//! verb at all - extensions disappear by deleting the .tcz and its
+//! onboot.lst entry and rebooting - so REMOVE is not advertised.
 
 use std::path::PathBuf;
 
 use async_trait::async_trait;
 use snowcone_core::{
     BackendFactory, Capabilities, Cmd, Detection, Elevator, Error, HostInfo, InstallState,
-    ManagerKind, OpContext, Package, PackageManager, PackageRequest, Result, find_program,
+    ManagerKind, OpContext, Operation, Package, PackageManager, PackageRequest, Result,
+    find_program,
 };
 
 const ID: &str = "tce-load";
@@ -137,7 +137,7 @@ impl PackageManager for Manager {
     }
 
     fn capabilities(&self) -> Capabilities {
-        Capabilities::CORE
+        Capabilities::INSTALL | Capabilities::LIST_INSTALLED | Capabilities::INFO
     }
 
     async fn install(&self, packages: &[PackageRequest], ctx: &OpContext) -> Result<()> {
@@ -152,11 +152,10 @@ impl PackageManager for Manager {
         Ok(())
     }
 
+    /// Tiny Core has no uninstall verb - removal is deleting the .tcz
+    /// from the tce directory and its onboot.lst entry, then rebooting.
     async fn remove(&self, _packages: &[PackageRequest], _ctx: &OpContext) -> Result<()> {
-        Err(Error::Other(format!(
-            "{ID}: Tiny Core has no uninstall verb - remove an extension by deleting its .tcz \
-             from the tce directory and its onboot.lst entry, then rebooting"
-        )))
+        Err(self.unsupported(Operation::Remove))
     }
 
     async fn list_installed(&self) -> Result<Vec<Box<dyn Package>>> {

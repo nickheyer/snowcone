@@ -172,8 +172,12 @@ impl PackageManager for Manager {
             .arg("search")
             .arg(query)
             .capture(&self.elevator, None)
-            .await?
-            .require_success()?;
+            .await?;
+        // poetry exits non-zero on "no matches" and on sources that do not
+        // support search; neither is an error worth surfacing.
+        if !output.success() && output.stdout.trim().is_empty() {
+            return Ok(Vec::new());
+        }
         Ok(boxed(parse_search(&output.stdout)))
     }
 

@@ -5,7 +5,9 @@
 //! `lvu` answers queries against moonbase, and `lunar` renovates the whole
 //! system. Every install is a source build that runs as root and prompts on
 //! the terminal - no yes-flag, no dry-run - so `assume_yes` has nothing to
-//! do and `--dry-run` errors instead of pretending.
+//! do and `--dry-run` errors instead of pretending. Version pins go through
+//! `lin -w <version>` ("Try to install a different version that is not in
+//! moonbase"), which exports WANT_VERSION for the build.
 
 use std::path::{Path, PathBuf};
 
@@ -86,6 +88,33 @@ impl Manager {
         Error::Other(format!("{ID}: {operation} has no dry-run mode"))
     }
 
+    /// Build modules with `lin`. `-w` exports WANT_VERSION for the whole
+    /// invocation (prog/lin: `export WANT_VERSION=$2`), so each pinned
+    /// request builds in its own invocation; unpinned requests share one.
+    async fn lin_build(&self, packages: &[PackageRequest], ctx: &OpContext) -> Result<()> {
+        let unpinned: Vec<&str> = packages
+            .iter()
+            .filter(|package| package.version.is_none())
+            .map(|package| package.name.as_str())
+            .collect();
+        if !unpinned.is_empty() {
+            let cmd = self.cmd(&self.lin).elevated(true).args(unpinned);
+            self.run(cmd, ctx).await?;
+        }
+        for package in packages {
+            let Some(version) = &package.version else {
+                continue;
+            };
+            let cmd = self
+                .cmd(&self.lin)
+                .elevated(true)
+                .args(["-w", version])
+                .arg(&package.name);
+            self.run(cmd, ctx).await?;
+        }
+        Ok(())
+    }
+
     /// Everything `lvu installed` reports, for listings and state probes.
     async fn installed(&self) -> Result<Vec<LunarPackage>> {
         let output = self
@@ -95,16 +124,6 @@ impl Manager {
             .await?
             .require_success()?;
         Ok(parse_installed(&output.stdout))
-    }
-}
-
-/// Moonbase holds exactly one version per module; there is nothing to pin.
-fn reject_pins(requests: &[PackageRequest]) -> Result<()> {
-    match requests.iter().find(|request| request.version.is_some()) {
-        Some(pinned) => Err(Error::Other(format!(
-            "{ID}: `{pinned}` pins a version, but lunar builds moonbase's current version"
-        ))),
-        None => Ok(()),
     }
 }
 
@@ -127,7 +146,11 @@ impl PackageManager for Manager {
     }
 
     fn capabilities(&self) -> Capabilities {
-        Capabilities::CORE | Capabilities::SEARCH | Capabilities::REFRESH | Capabilities::UPGRADE
+        Capabilities::CORE
+            | Capabilities::SEARCH
+            | Capabilities::REFRESH
+            | Capabilities::UPGRADE
+            | Capabilities::PIN_VERSION
     }
 
     fn needs_elevation(&self, operation: Operation) -> bool {
@@ -138,15 +161,10 @@ impl PackageManager for Manager {
     }
 
     async fn install(&self, packages: &[PackageRequest], ctx: &OpContext) -> Result<()> {
-        reject_pins(packages)?;
         if ctx.dry_run {
             return Err(self.no_dry_run("install"));
         }
-        let cmd = self
-            .cmd(&self.lin)
-            .elevated(true)
-            .args(packages.iter().map(|package| package.name.as_str()));
-        self.run(cmd, ctx).await
+        self.lin_build(packages, ctx).await
     }
 
     async fn remove(&self, packages: &[PackageRequest], ctx: &OpContext) -> Result<()> {
@@ -217,7 +235,6 @@ impl PackageManager for Manager {
     }
 
     async fn upgrade(&self, packages: &[PackageRequest], ctx: &OpContext) -> Result<()> {
-        reject_pins(packages)?;
         if ctx.dry_run {
             return Err(self.no_dry_run("upgrade"));
         }
@@ -225,12 +242,9 @@ impl PackageManager for Manager {
             let cmd = self.cmd(&self.lunar).arg("update").elevated(true);
             return self.run(cmd, ctx).await;
         }
-        // `lin` on an installed module rebuilds it at moonbase's version.
-        let cmd = self
-            .cmd(&self.lin)
-            .elevated(true)
-            .args(packages.iter().map(|package| package.name.as_str()));
-        self.run(cmd, ctx).await
+        // `lin` on an installed module rebuilds it at moonbase's version,
+        // or at the pinned version via `-w`.
+        self.lin_build(packages, ctx).await
     }
 }
 
@@ -418,11 +432,5 @@ nothing matched your query
         assert_eq!(packages[1].name, "zsh");
         assert_eq!(packages[1].origin, None);
         assert_eq!(packages[1].state, InstallState::Available);
-    }
-
-    #[test]
-    fn rejects_version_pins() {
-        assert!(reject_pins(&[PackageRequest::parse("bash@5.2")]).is_err());
-        assert!(reject_pins(&[PackageRequest::parse("bash")]).is_ok());
     }
 }

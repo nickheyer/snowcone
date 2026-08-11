@@ -4,9 +4,12 @@
 //! (`--auto-select` for everything), `urpme` removes, `urpmq` queries, and
 //! `urpmi.update -a` refreshes media - each companion is resolved separately
 //! at startup. `--auto` answers prompts and `--test` is a native dry run for
-//! install/upgrade. The suite has no list-installed verb at all; that read
-//! honestly comes from `rpm -qa` with an explicit `--queryformat` against
-//! the shared rpmdb.
+//! install/upgrade. `urpmq -i` prints rpm-style stanzas that pair
+//! `Size`/`Architecture` and `Source RPM`/`Build Host` two to a physical
+//! line, and `urpmq --auto-select -f` names what a full upgrade would pull
+//! in `name-version-release.arch` form - the outdated listing. The suite
+//! has no list-installed verb at all; that read honestly comes from
+//! `rpm -qa` with an explicit `--queryformat` against the shared rpmdb.
 
 use std::path::{Path, PathBuf};
 
@@ -135,7 +138,11 @@ impl PackageManager for Manager {
     }
 
     fn capabilities(&self) -> Capabilities {
-        Capabilities::CORE | Capabilities::SEARCH | Capabilities::REFRESH | Capabilities::UPGRADE
+        Capabilities::CORE
+            | Capabilities::SEARCH
+            | Capabilities::REFRESH
+            | Capabilities::UPGRADE
+            | Capabilities::LIST_OUTDATED
     }
 
     fn needs_elevation(&self, operation: Operation) -> bool {
@@ -249,6 +256,21 @@ impl PackageManager for Manager {
         };
         self.run(cmd, ctx).await
     }
+
+    async fn list_outdated(&self) -> Result<Vec<Box<dyn Package>>> {
+        let urpmq = companion(&self.urpmq, "urpmq")?;
+        // `--auto-select` resolves the same selection an
+        // `urpmi --auto-select` upgrade would install (pulled-in
+        // dependencies included); `-f` makes it print full
+        // `name-version-release.arch` lines. An up-to-date system prints
+        // nothing and exits zero.
+        let output = query(urpmq)
+            .args(["--auto-select", "-f"])
+            .capture(&self.elevator, None)
+            .await?
+            .require_success()?;
+        Ok(boxed(parse_auto_select(&output.stdout)))
+    }
 }
 
 fn boxed(packages: Vec<UrpmiPackage>) -> Vec<Box<dyn Package>> {
@@ -299,7 +321,29 @@ fn parse_names(stdout: &str) -> Vec<UrpmiPackage> {
         .collect()
 }
 
-/// `urpmq -i`: rpm-style `Key : Value` lines; everything after the
+/// One physical `urpmq -i` line holds one `Key : value` pair - or two,
+/// for the fixed pairs urpmq prints rpm-style on a shared line
+/// (`Size`/`Architecture` and `Source RPM`/`Build Host`, its
+/// `%-12s: %-28s %12s: %s` format). The right-hand label is recognized by
+/// name so colons inside ordinary values (URLs) stay untouched.
+fn split_columns<'a>(key: &'a str, rest: &'a str) -> Vec<(&'a str, &'a str)> {
+    for label in ["Architecture", "Build Host"] {
+        if let Some(at) = rest.find(label)
+            && at > 0
+            && rest[..at].ends_with(char::is_whitespace)
+            && rest[at + label.len()..].starts_with(':')
+        {
+            return vec![
+                (key.trim(), &rest[..at]),
+                (label, &rest[at + label.len() + 1..]),
+            ];
+        }
+    }
+    vec![(key.trim(), rest)]
+}
+
+/// `urpmq -i`: rpm-style `Key : Value` lines, with the paired columns
+/// split apart first (see [`split_columns`]); everything after the
 /// `Description` key is free text that may itself contain colons, so field
 /// parsing stops there (limiting multi-media output to its first stanza).
 fn parse_info(stdout: &str) -> Option<UrpmiPackage> {
@@ -310,26 +354,28 @@ fn parse_info(stdout: &str) -> Option<UrpmiPackage> {
     let mut version = None;
     let mut release = None;
     for line in stdout.lines() {
-        let Some((key, value)) = line.split_once(':') else {
+        let Some((key, rest)) = line.split_once(':') else {
             continue;
         };
-        let (key, value) = (key.trim(), value.trim());
-        if key == "Description" {
+        if key.trim() == "Description" {
             break;
         }
-        if value.is_empty() || value == "(none)" {
-            continue;
-        }
-        match key {
-            "Name" => package.name = value.to_string(),
-            "Version" => version = Some(value.to_string()),
-            "Release" => release = Some(value.to_string()),
-            "Architecture" => package.architecture = Some(value.to_string()),
-            "License" => package.license = Some(value.to_string()),
-            "Summary" => package.description = Some(value.to_string()),
-            "URL" => package.homepage = Some(value.to_string()),
-            "Size" => package.installed_size = value.parse().ok(),
-            _ => {}
+        for (key, value) in split_columns(key, rest) {
+            let value = value.trim();
+            if value.is_empty() || value == "(none)" {
+                continue;
+            }
+            match key {
+                "Name" => package.name = value.to_string(),
+                "Version" => version = Some(value.to_string()),
+                "Release" => release = Some(value.to_string()),
+                "Architecture" => package.architecture = Some(value.to_string()),
+                "License" => package.license = Some(value.to_string()),
+                "Summary" => package.description = Some(value.to_string()),
+                "URL" => package.homepage = Some(value.to_string()),
+                "Size" => package.installed_size = value.parse().ok(),
+                _ => {}
+            }
         }
     }
     package.version = match (version, release) {
@@ -338,6 +384,39 @@ fn parse_info(stdout: &str) -> Option<UrpmiPackage> {
         (None, _) => None,
     };
     (!package.name.is_empty()).then_some(package)
+}
+
+/// `urpmq --auto-select -f`: one full `name-version-release.arch` token
+/// per line, naming the version the media would upgrade to (the installed
+/// version is not printed). rpm forbids dashes inside version and
+/// release, so both split off the right; the architecture sits after the
+/// final dot.
+fn parse_auto_select(stdout: &str) -> Vec<UrpmiPackage> {
+    stdout
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.contains(char::is_whitespace))
+        .filter_map(|token| {
+            let (rest, arch) = token.rsplit_once('.')?;
+            let mut fields = rest.rsplitn(3, '-');
+            let release = fields.next()?;
+            let version = fields.next()?;
+            let name = fields.next()?;
+            if name.is_empty()
+                || arch.is_empty()
+                || !version.starts_with(|c: char| c.is_ascii_digit())
+            {
+                return None;
+            }
+            Some(UrpmiPackage {
+                name: name.to_string(),
+                latest_version: Some(format!("{version}-{release}")),
+                architecture: Some(arch.to_string()),
+                state: InstallState::Upgradable,
+                ..Default::default()
+            })
+        })
+        .collect()
 }
 
 /// A package as the urpmi suite describes it.
@@ -430,15 +509,14 @@ ripgrep-bash-completion
     }
 
     #[test]
-    fn parses_urpmq_info_stanza() {
+    fn parses_urpmq_info_stanza_with_paired_columns() {
         let stdout = "\
 Name        : ripgrep
 Version     : 14.1.0
 Release     : 1.mga9
 Group       : Development/Other
-Size        : 8339847
-Architecture: x86_64
-Source RPM  : ripgrep-14.1.0-1.mga9.src.rpm
+Size        : 8339847                      Architecture: x86_64
+Source RPM  : ripgrep-14.1.0-1.mga9.src.rpm   Build Host: localhost
 URL         : https://github.com/BurntSushi/ripgrep
 Summary     : Line-oriented search tool
 Description :
@@ -459,6 +537,24 @@ your current directory for a regex pattern. Note: the binary is named rg.
             Some("https://github.com/BurntSushi/ripgrep")
         );
         assert_eq!(package.state, InstallState::Available);
+    }
+
+    #[test]
+    fn parses_auto_select_fullnames() {
+        let stdout = "\
+lib64nss3-3.101-1.mga9.x86_64
+ripgrep-14.1.0-1.mga9.x86_64
+mageia-gfxboot-theme-4.5.16.13-1.mga9.noarch
+";
+        let packages = parse_auto_select(stdout);
+        assert_eq!(packages.len(), 3);
+        assert_eq!(packages[0].name, "lib64nss3");
+        assert_eq!(packages[0].latest_version.as_deref(), Some("3.101-1.mga9"));
+        assert_eq!(packages[0].architecture.as_deref(), Some("x86_64"));
+        assert_eq!(packages[2].name, "mageia-gfxboot-theme");
+        assert_eq!(packages[2].architecture.as_deref(), Some("noarch"));
+        assert!(packages.iter().all(|p| p.state == InstallState::Upgradable));
+        assert!(parse_auto_select("").is_empty());
     }
 
     #[test]

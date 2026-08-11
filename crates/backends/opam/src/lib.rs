@@ -82,7 +82,12 @@ fn spec(request: &PackageRequest) -> String {
         .map_or_else(|| request.name.clone(), |v| format!("{}.{v}", request.name))
 }
 
-const COLUMNS: &str = "name,installed-version,version,synopsis";
+/// `available-versions` rather than `version`: opam's `version` column
+/// prints the version of the row's selected package, which for an
+/// installed package is the installed version - useless for spotting
+/// updates. The available list is ascending, so its last entry is the
+/// newest installable version.
+const COLUMNS: &str = "name,installed-version,available-versions,synopsis";
 
 #[async_trait]
 impl PackageManager for Manager {
@@ -192,12 +197,15 @@ impl PackageManager for Manager {
         .await
     }
 
+    /// opam list has no `--outdated` selector; outdated packages are the
+    /// installed ones whose newest available version differs from the
+    /// installed version.
     async fn list_outdated(&self) -> Result<Vec<Box<dyn Package>>> {
         let out = self
             .cmd()
             .args([
                 "list",
-                "--outdated",
+                "--installed",
                 "--columns",
                 COLUMNS,
                 "--separator",
@@ -206,7 +214,12 @@ impl PackageManager for Manager {
             .capture(&self.elevator, None)
             .await?
             .require_success()?;
-        Ok(boxed(parse_columns(&out.stdout, InstallState::Upgradable)))
+        Ok(boxed(
+            parse_columns(&out.stdout, InstallState::Installed)
+                .into_iter()
+                .filter(|package| package.state == InstallState::Upgradable)
+                .collect(),
+        ))
     }
 }
 
@@ -217,24 +230,35 @@ fn boxed(packages: Vec<OpamPackage>) -> Vec<Box<dyn Package>> {
         .collect()
 }
 
+/// Tab-separated `opam list --columns` rows. Header rows all start with
+/// `#`: the `# Packages matching: …` banner and the `# Name\t# Installed\t…`
+/// column-title row. The available-versions cell lists every version in
+/// ascending order, so its last entry is the newest.
 fn parse_columns(stdout: &str, default_state: InstallState) -> Vec<OpamPackage> {
     stdout
         .lines()
         .filter_map(|line| {
+            if line.trim_start().starts_with('#') {
+                return None;
+            }
             let mut fields = line.splitn(4, '\t');
             let name = fields.next()?.trim();
             let installed = fields.next().unwrap_or("").trim();
-            let available = fields.next().unwrap_or("").trim();
+            let latest = fields
+                .next()
+                .unwrap_or("")
+                .split_whitespace()
+                .next_back()
+                .unwrap_or("");
             let description = fields
                 .next()
                 .map(str::trim)
                 .filter(|s| !s.is_empty())
                 .map(str::to_owned);
-            if name.is_empty() || name == "name" {
+            if name.is_empty() {
                 return None;
             }
-            let state = if !installed.is_empty() && !available.is_empty() && installed != available
-            {
+            let state = if !installed.is_empty() && !latest.is_empty() && installed != latest {
                 InstallState::Upgradable
             } else if !installed.is_empty() {
                 InstallState::Installed
@@ -243,11 +267,12 @@ fn parse_columns(stdout: &str, default_state: InstallState) -> Vec<OpamPackage> 
             };
             let version = (!installed.is_empty())
                 .then_some(installed)
-                .or_else(|| (!available.is_empty()).then_some(available))
+                .or_else(|| (!latest.is_empty()).then_some(latest))
                 .map(str::to_owned);
             Some(OpamPackage {
                 name: name.into(),
                 version,
+                latest_version: (!latest.is_empty()).then(|| latest.to_owned()),
                 description,
                 state,
             })
@@ -261,15 +286,26 @@ mod tests {
 
     #[test]
     fn parses_machine_columns_and_states() {
+        // Header shape as opam prints it (a `# Packages matching:` banner
+        // plus a `# `-prefixed title per column, cf. opam's reftests);
+        // cells are tab-separated and the available-versions cell is an
+        // ascending space-joined list.
         let rows = parse_columns(
-            "name\tinstalled-version\tversion\tsynopsis\n dune\t3.17.2\t3.18.0\tBuild system\nfmt\t\t0.11.0\tFormatting\n",
+            "# Packages matching: installed\n\
+             # Name\t# Installed\t# Available versions\t# Synopsis\n\
+             dune\t3.17.2\t3.16.1  3.17.2  3.18.0\tFast, portable, and opinionated build system\n\
+             fmt\t\t0.9.0  0.11.0\tOCaml Format pretty-printer combinators\n\
+             ocamlfind\t1.9.6\t1.9.5  1.9.6\tA library manager for OCaml\n",
             InstallState::Available,
         );
-        assert_eq!(rows.len(), 2);
+        assert_eq!(rows.len(), 3);
         assert_eq!(rows[0].name, "dune");
         assert_eq!(rows[0].version.as_deref(), Some("3.17.2"));
+        assert_eq!(rows[0].latest_version.as_deref(), Some("3.18.0"));
         assert_eq!(rows[0].state, InstallState::Upgradable);
         assert_eq!(rows[1].state, InstallState::Available);
+        assert_eq!(rows[1].version.as_deref(), Some("0.11.0"));
+        assert_eq!(rows[2].state, InstallState::Installed);
     }
 
     #[test]
@@ -279,11 +315,12 @@ mod tests {
     }
 }
 
-/// The package type this backend will produce once implemented.
+/// A package as opam describes it.
 #[derive(Debug)]
 pub struct OpamPackage {
     pub name: String,
     pub version: Option<String>,
+    pub latest_version: Option<String>,
     pub description: Option<String>,
     pub state: InstallState,
 }
@@ -299,6 +336,10 @@ impl Package for OpamPackage {
 
     fn version(&self) -> Option<&str> {
         self.version.as_deref()
+    }
+
+    fn latest_version(&self) -> Option<&str> {
+        self.latest_version.as_deref()
     }
 
     fn description(&self) -> Option<&str> {

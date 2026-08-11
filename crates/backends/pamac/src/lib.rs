@@ -183,8 +183,12 @@ impl PackageManager for Manager {
             .arg("search")
             .arg(query)
             .capture(&self.elevator, None)
-            .await?
-            .require_success()?;
+            .await?;
+        // pamac exits non-zero on "no matches" - an empty result, not an
+        // error.
+        if !output.success() && output.stdout.trim().is_empty() {
+            return Ok(Vec::new());
+        }
         Ok(parse_search(&output.stdout))
     }
 

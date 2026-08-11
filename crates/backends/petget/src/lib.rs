@@ -1,12 +1,16 @@
 //! Puppy Package Manager backend for snowcone.
 //!
 //! Puppy's package manager is a GUI; its scriptable surface is thin. The
-//! `petget` script installs a local .pet file passed by path (it may still
-//! raise GUI dialogs - there is no yes-flag and no dry run), and the
+//! `petget` script installs a local .pet file passed by path - verified in
+//! woof-CE's `rootfs-skeleton/usr/local/petget/petget`, which also re-execs
+//! itself under `sudo -A` when not root and may still raise GUI dialogs
+//! when a display is present (there is no yes-flag and no dry run). The
 //! installed set is recorded in the pipe-delimited
 //! `/root/.packages/user-installed-packages` registry, which reads parse
-//! directly because no query CLI exists. Removal has no non-interactive
-//! verb at all, so `remove` says so instead of guessing.
+//! directly because no query CLI exists. Removal exists upstream only as
+//! `petget -<fullname>`, a boot-script hook that raises GUI dialogs
+//! whenever a display is present, so REMOVE is not advertised and `remove`
+//! says why instead of guessing.
 
 use std::path::PathBuf;
 
@@ -112,15 +116,19 @@ impl PackageManager for Manager {
         "puppy"
     }
 
+    /// Not `CORE`: REMOVE is deliberately absent, because `remove` can
+    /// only error here (see the module doc) and an advertised bit must
+    /// mean the operation works.
     fn capabilities(&self) -> Capabilities {
-        Capabilities::CORE
+        Capabilities::INSTALL | Capabilities::LIST_INSTALLED | Capabilities::INFO
     }
 
+    /// Install is the only operation that runs the tool, and installing
+    /// needs root (petget re-execs under `sudo -A` on its own when it has
+    /// to). Everything else reads the registry file or refuses before any
+    /// command runs.
     fn needs_elevation(&self, operation: Operation) -> bool {
-        matches!(
-            operation,
-            Operation::Install | Operation::Remove | Operation::Upgrade | Operation::Refresh
-        )
+        matches!(operation, Operation::Install)
     }
 
     async fn install(&self, packages: &[PackageRequest], ctx: &OpContext) -> Result<()> {
@@ -129,6 +137,10 @@ impl PackageManager for Manager {
             return Err(Error::Other(format!("{ID}: install has no dry-run mode")));
         }
         for package in packages {
+            // Verified against woof-CE's petget script: a .pet given by
+            // path installs directly (`petget /root/pkg.pet`); bare names
+            // go down the script's GUI/repo paths instead, so they are
+            // refused here.
             if !package.name.ends_with(".pet") {
                 return Err(Error::Other(format!(
                     "{ID}: `{}` is not a .pet file - petget only installs a local .pet given by \
@@ -136,6 +148,8 @@ impl PackageManager for Manager {
                     package.name
                 )));
             }
+            // Elevated by snowcone: petget's own fallback is `sudo -A`,
+            // which fails outright without an askpass helper.
             self.run(self.cmd().arg(&package.name).elevated(true), ctx)
                 .await?;
         }
@@ -143,9 +157,12 @@ impl PackageManager for Manager {
     }
 
     async fn remove(&self, _packages: &[PackageRequest], _ctx: &OpContext) -> Result<()> {
+        // Upstream's only removal spelling, `petget -<fullname>`, is a
+        // boot-script hook that raises GUI dialogs whenever a display is
+        // present - not a scriptable verb, so REMOVE is not advertised.
         Err(Error::Other(format!(
-            "{ID}: Puppy exposes package removal only through the Puppy Package Manager GUI; \
-             no non-interactive remove verb exists"
+            "{ID}: Puppy exposes package removal only through the Puppy Package Manager GUI \
+             (petget's `-<fullname>` form is for boot scripts and raises GUI dialogs under X)"
         )))
     }
 

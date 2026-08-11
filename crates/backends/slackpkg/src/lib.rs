@@ -1,15 +1,17 @@
 //! slackpkg backend for snowcone.
 //!
 //! slackpkg wraps pkgtools with mirror awareness, but the script is built
-//! for humans: `-batch=on -default_answer=y` (that is the documented
-//! spelling) is the only way to keep it from prompting, its messages are
-//! gettext-translated (hence `LC_ALL=C` on every parsed read), and nothing
-//! has a simulate mode, so dry runs error instead of acting. There is no
-//! list-installed verb - the installed set is read straight from the
-//! pkgtools database slackpkg manages (/var/lib/pkgtools/packages, with the
-//! pre-15.0 /var/log/packages fallback). Search rows changed shape in 15.0
-//! (three bracketed columns instead of the old `[ status ] - package`
-//! line); both forms are parsed.
+//! for humans: `-batch=on -default_answer=y` is the only way to keep it
+//! from prompting (15.0's option matcher accepts `y` and `yes` alike -
+//! and only root can mutate, though the script explicitly exempts
+//! `search`, `info`, and the other read verbs from its root check), its
+//! messages are gettext-translated (hence `LC_ALL=C` on every parsed
+//! read), and nothing has a simulate mode, so dry runs error instead of
+//! acting. There is no list-installed verb - the installed set is read
+//! straight from /var/log/packages, the pkgtools database slackpkg itself
+//! greps. Stock search rows are `[ status ] - package` lines (with
+//! `old --> new` on upgrade rows); the three-bracketed-column layout comes
+//! from the third-party slackpkg+ extension, so both forms are parsed.
 
 use std::path::{Path, PathBuf};
 
@@ -22,7 +24,11 @@ use snowcone_core::{
 
 const ID: &str = "slackpkg";
 const PROGRAMS: &[&str] = &["slackpkg"];
-const DATABASE_DIRS: [&str; 2] = ["/var/lib/pkgtools/packages", "/var/log/packages"];
+/// Slackware's package database is /var/log/packages, 15.0 included -
+/// slackpkg's own searchlist greps it (/var/lib/pkgtools holds setup
+/// files and removed_packages, not the installed set); the pkgtools path
+/// stays as a defensive fallback only.
+const DATABASE_DIRS: [&str; 2] = ["/var/log/packages", "/var/lib/pkgtools/packages"];
 
 pub fn factory() -> Box<dyn BackendFactory> {
     Box::new(Factory)
@@ -126,6 +132,8 @@ impl PackageManager for Manager {
         Capabilities::CORE | Capabilities::SEARCH | Capabilities::REFRESH | Capabilities::UPGRADE
     }
 
+    /// slackpkg's root check exempts its read verbs by name (`search`,
+    /// `info`, `check-updates`, ...), so only the mutations prompt.
     fn needs_elevation(&self, operation: Operation) -> bool {
         matches!(
             operation,
@@ -238,8 +246,8 @@ impl PackageManager for Manager {
     }
 }
 
-/// The installed-package database directory, preferring the modern
-/// location over the pre-15.0 one.
+/// The installed-package database directory: /var/log/packages wherever
+/// it exists, the pkgtools path only as a fallback.
 fn database_dir() -> &'static Path {
     DATABASE_DIRS
         .iter()
@@ -297,8 +305,9 @@ fn parse_search(stdout: &str) -> Vec<SlackpkgPackage> {
     stdout.lines().filter_map(parse_search_line).collect()
 }
 
-/// One search row: 15.0 prints three bracketed columns
-/// (status/repository/package); 14.x printed `[ status ] - package`.
+/// One search row: stock slackpkg prints `[ status ] - package` (an
+/// upgrade row names both sides as `installed --> repository`); slackpkg+
+/// prints three bracketed columns (status/repository/package).
 fn parse_search_line(line: &str) -> Option<SlackpkgPackage> {
     let groups = bracket_groups(line);
     let (status, origin, entry) = match groups.as_slice() {
@@ -315,6 +324,22 @@ fn parse_search_line(line: &str) -> Option<SlackpkgPackage> {
         status if status.contains("upgrade") => InstallState::Upgradable,
         _ => return None,
     };
+    // A stock upgrade row carries both entries; the left one is the
+    // installed package, the right one the repository's.
+    if state == InstallState::Upgradable
+        && let Some((left, right)) = entry.split_once("-->")
+    {
+        let (name, version, arch, _build) = split_entry(left.trim())?;
+        return Some(SlackpkgPackage {
+            name,
+            version: Some(version),
+            latest_version: split_entry(right.trim()).map(|(_, version, _, _)| version),
+            architecture: Some(arch),
+            origin,
+            state,
+            ..Default::default()
+        });
+    }
     let (name, version, arch, _build) = split_entry(entry)?;
     let mut package = SlackpkgPackage {
         name,
@@ -323,8 +348,8 @@ fn parse_search_line(line: &str) -> Option<SlackpkgPackage> {
         state,
         ..Default::default()
     };
-    // An upgradable row names the repository's version, not the installed
-    // one.
+    // An upgradable row without both sides names the repository's version,
+    // not the installed one.
     if state == InstallState::Upgradable {
         package.latest_version = Some(version);
     } else {
@@ -516,11 +541,11 @@ The list below shows all packages with name matching \"xz\".
     }
 
     #[test]
-    fn parses_old_single_bracket_search_rows() {
+    fn parses_stock_single_bracket_search_rows() {
         let stdout = "\
 [ installed ] - xz-5.2.2-x86_64-1
 [uninstalled] - xzgv-0.9.1-x86_64-1
-[  upgrade  ] - bash-5.2.021-x86_64-1
+[  upgrade  ] - bash-5.1.008-x86_64-1 --> bash-5.1.016-x86_64-1
 ";
         let packages = parse_search(stdout);
         assert_eq!(packages.len(), 3);
@@ -528,8 +553,8 @@ The list below shows all packages with name matching \"xz\".
         assert_eq!(packages[0].state, InstallState::Installed);
         assert_eq!(packages[2].name, "bash");
         assert_eq!(packages[2].state, InstallState::Upgradable);
-        assert_eq!(packages[2].version, None);
-        assert_eq!(packages[2].latest_version.as_deref(), Some("5.2.021"));
+        assert_eq!(packages[2].version.as_deref(), Some("5.1.008"));
+        assert_eq!(packages[2].latest_version.as_deref(), Some("5.1.016"));
     }
 
     #[test]

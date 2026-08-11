@@ -59,7 +59,7 @@ impl Manager {
     }
 
     fn query(&self) -> Cmd {
-        self.cmd().env("LC_ALL", "C").env("HELM_COLOR", "never")
+        self.cmd().env("LC_ALL", "C")
     }
 
     async fn run(&self, cmd: Cmd, ctx: &OpContext) -> Result<()> {

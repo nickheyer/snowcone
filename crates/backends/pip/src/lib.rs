@@ -241,7 +241,9 @@ fn parse_show(stdout: &str) -> Option<PipPackage> {
             "Version" => package.version = Some(value.to_string()),
             "Summary" => package.description = Some(value.to_string()),
             "Home-page" => package.homepage = Some(value.to_string()),
-            "License" => package.license = Some(value.to_string()),
+            // Metadata 2.4 (PEP 639) packages get `License-Expression:`
+            // instead of `License:`; pip prints exactly one of the two.
+            "License" | "License-Expression" => package.license = Some(value.to_string()),
             "Requires" => {
                 package.dependencies = Some(
                     value
@@ -357,6 +359,26 @@ Required-by:
             Some(4)
         );
         assert_eq!(package.state, InstallState::Installed);
+    }
+
+    #[test]
+    fn parses_show_output_with_license_expression() {
+        // Verbatim `pip show urllib3` from a metadata-2.4 (PEP 639) install.
+        let stdout = "\
+Name: urllib3
+Version: 2.7.0
+Summary: HTTP library with thread-safe connection pooling, file post, and more.
+Home-page:
+Author:
+Author-email: Andrey Petrov <andrey.petrov@shazow.net>
+License-Expression: MIT
+Location: /usr/lib/python3.14/site-packages
+Requires:
+Required-by: requests, responses
+";
+        let package = parse_show(stdout).unwrap();
+        assert_eq!(package.name, "urllib3");
+        assert_eq!(package.license.as_deref(), Some("MIT"));
     }
 
     #[test]

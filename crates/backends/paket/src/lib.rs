@@ -254,19 +254,22 @@ fn parse_installed(stdout: &str) -> Vec<PaketPackage> {
 fn parse_search(stdout: &str) -> Vec<PaketPackage> {
     stdout
         .lines()
-        .map(str::trim)
-        .filter(|line| {
-            !line.is_empty()
-                && !line.starts_with("Paket version")
-                && !line.chars().any(char::is_whitespace)
-        })
-        .map(|name| PaketPackage {
-            name: name.into(),
-            version: None,
-            latest_version: None,
-            description: None,
-            group: None,
-            state: InstallState::Available,
+        .filter_map(|line| {
+            // One package id per line, but tolerate any padding Paket adds:
+            // the first token of the trimmed line is the id (NuGet ids
+            // never contain whitespace).
+            let name = line.split_whitespace().next()?;
+            if line.trim_start().starts_with("Paket version") {
+                return None;
+            }
+            Some(PaketPackage {
+                name: name.into(),
+                version: None,
+                latest_version: None,
+                description: None,
+                group: None,
+                state: InstallState::Available,
+            })
         })
         .collect()
 }
@@ -364,6 +367,14 @@ mod tests {
         assert_eq!(packages.len(), 2);
         assert_eq!(packages[1].name, "FAKE.Core");
         assert_eq!(packages[1].state, InstallState::Available);
+    }
+
+    #[test]
+    fn parses_search_output_with_padding() {
+        let packages = parse_search("Paket version 8.0.3\n  FAKE  \n\tFAKE.Core\t\n");
+        assert_eq!(packages.len(), 2);
+        assert_eq!(packages[0].name, "FAKE");
+        assert_eq!(packages[1].name, "FAKE.Core");
     }
 
     #[test]

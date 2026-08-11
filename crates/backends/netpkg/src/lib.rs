@@ -1,16 +1,18 @@
 //! netpkg backend for snowcone.
 //!
-//! Zenwalk's netpkg is an interactive, dialog-driven script, so this
-//! backend is deliberately conservative: `netpkg <name>` (install-or-
-//! upgrade from the configured mirror) and `netpkg upgrade` are the only
-//! CLI verbs it trusts, and it never invents flags - netpkg has no yes
-//! switch, so prompts pass through to the terminal, and no simulate mode,
-//! so dry runs error. Everything readable comes from the pkgtools database
-//! Zenwalk shares with Slackware: the installed list, info, and - because
-//! netpkg's own package picker is a dialog with no parseable output - a
-//! LOCAL, INSTALLED-ONLY search fallback. Removal delegates to pkgtools'
-//! `removepkg` (with its native `-warn` dry run); netpkg itself has no
-//! defensible remove verb.
+//! Modern netpkg (7.0+, verified in the maintainer's script) is a plain
+//! bash CLI with real verbs: `install`, `remove`, `search`, `update`
+//! (reload the remote package lists), and `upgrade` - the bare
+//! `netpkg <name>` form of old netpkg is just a search now. install and
+//! remove treat their arguments as patterns and prompt per match on the
+//! terminal; netpkg has no yes switch, so prompts pass through, and no
+//! simulate mode, so dry runs error - except remove, whose dry run falls
+//! back to pkgtools' native `removepkg -warn` preview. Search prints the
+//! listPkg status table but keeps its scratch files under root-owned
+//! /var/netpkg, so it only produces results for root - declared through
+//! `needs_elevation` while the read itself stays unelevated. The
+//! installed list and info come from the pkgtools database Zenwalk shares
+//! with Slackware; netpkg has no info verb.
 
 use std::path::{Path, PathBuf};
 
@@ -23,7 +25,10 @@ use snowcone_core::{
 
 const ID: &str = "netpkg";
 const PROGRAMS: &[&str] = &["netpkg"];
-const DATABASE_DIRS: [&str; 2] = ["/var/lib/pkgtools/packages", "/var/log/packages"];
+/// Slackware's package database is /var/log/packages, 15.0 included
+/// (/var/lib/pkgtools holds setup files and removed_packages, not the
+/// installed set); the pkgtools path stays as a defensive fallback only.
+const DATABASE_DIRS: [&str; 2] = ["/var/log/packages", "/var/lib/pkgtools/packages"];
 
 pub fn factory() -> Box<dyn BackendFactory> {
     Box::new(Factory)
@@ -63,6 +68,11 @@ struct Manager {
 }
 
 impl Manager {
+    /// Read invocation with a stable locale, so parsing survives i18n.
+    fn query(&self) -> Cmd {
+        Cmd::new(&self.program).env("LC_ALL", "C")
+    }
+
     /// CLI passthrough when no event consumer is attached, captured and
     /// streamed otherwise.
     async fn run(&self, cmd: Cmd, ctx: &OpContext) -> Result<()> {
@@ -109,13 +119,21 @@ impl PackageManager for Manager {
     }
 
     fn capabilities(&self) -> Capabilities {
-        Capabilities::CORE | Capabilities::SEARCH | Capabilities::UPGRADE
+        Capabilities::CORE | Capabilities::SEARCH | Capabilities::REFRESH | Capabilities::UPGRADE
     }
 
+    /// Search prompts too: netpkg's listPkg writes scratch files under
+    /// root-owned /var/netpkg, so a non-root run produces no rows. The
+    /// read still stays unelevated - the declaration only announces the
+    /// prompt an effective run needs.
     fn needs_elevation(&self, operation: Operation) -> bool {
         matches!(
             operation,
-            Operation::Install | Operation::Remove | Operation::Upgrade | Operation::Refresh
+            Operation::Install
+                | Operation::Remove
+                | Operation::Upgrade
+                | Operation::Refresh
+                | Operation::Search
         )
     }
 
@@ -124,26 +142,37 @@ impl PackageManager for Manager {
         if ctx.dry_run {
             return Err(self.no_dry_run("install"));
         }
-        for package in packages {
-            let cmd = Cmd::new(&self.program).arg(&package.name).elevated(true);
-            self.run(cmd, ctx).await?;
-        }
-        Ok(())
+        // `netpkg install` matches each argument against the package lists
+        // and prompts per match; the bare `netpkg <name>` of old netpkg is
+        // only a search in 7.0+.
+        let cmd = Cmd::new(&self.program)
+            .arg("install")
+            .elevated(true)
+            .args(packages.iter().map(|package| package.name.as_str()));
+        self.run(cmd, ctx).await
     }
 
-    /// netpkg has no defensible remove verb; what it installed is a plain
-    /// Slackware package, so removal goes through pkgtools' removepkg.
+    /// `netpkg remove` is real in 7.0+ (it searches installed packages and
+    /// prompts per match); only the dry run falls back to pkgtools'
+    /// `removepkg -warn`, because netpkg itself has no preview.
     async fn remove(&self, packages: &[PackageRequest], ctx: &OpContext) -> Result<()> {
-        let removepkg = find_program("removepkg").ok_or_else(|| {
-            Error::Other(format!(
-                "{ID}: removal is delegated to `removepkg`, which was not found on PATH"
-            ))
-        })?;
-        let mut cmd = Cmd::new(removepkg).elevated(true);
         if ctx.dry_run {
-            cmd = cmd.arg("-warn");
+            let removepkg = find_program("removepkg").ok_or_else(|| {
+                Error::Other(format!(
+                    "{ID}: the remove dry run is delegated to `removepkg -warn`, \
+                     but `removepkg` was not found on PATH"
+                ))
+            })?;
+            let cmd = Cmd::new(removepkg)
+                .arg("-warn")
+                .elevated(true)
+                .args(packages.iter().map(|package| package.name.as_str()));
+            return self.run(cmd, ctx).await;
         }
-        cmd = cmd.args(packages.iter().map(|package| package.name.as_str()));
+        let cmd = Cmd::new(&self.program)
+            .arg("remove")
+            .elevated(true)
+            .args(packages.iter().map(|package| package.name.as_str()));
         self.run(cmd, ctx).await
     }
 
@@ -166,15 +195,33 @@ impl PackageManager for Manager {
         Ok(Box::new(package))
     }
 
-    /// netpkg's own search is an interactive dialog with no parseable
-    /// output, so this searches the local database - installed packages
-    /// only.
+    /// `netpkg search` lists remote and installed matches as status rows;
+    /// run unelevated per the read contract, even though only root gets
+    /// rows out of it (netpkg's scratch files live under /var/netpkg).
     async fn search(&self, query: &str) -> Result<Vec<Box<dyn Package>>> {
-        Ok(read_installed(database_dir())?
+        let output = self
+            .query()
+            .arg("search")
+            .arg(query)
+            .capture(&self.elevator, None)
+            .await?;
+        let packages = parse_search(&output.stdout);
+        if packages.is_empty() {
+            output.require_success()?;
+        }
+        Ok(packages
             .into_iter()
-            .filter(|package| matches(&package.name, query))
             .map(|package| Box::new(package) as Box<dyn Package>)
             .collect())
+    }
+
+    /// `netpkg update` reloads the remote package lists.
+    async fn refresh(&self, ctx: &OpContext) -> Result<()> {
+        if ctx.dry_run {
+            return Err(self.no_dry_run("refresh"));
+        }
+        self.run(Cmd::new(&self.program).arg("update").elevated(true), ctx)
+            .await
     }
 
     async fn upgrade(&self, packages: &[PackageRequest], ctx: &OpContext) -> Result<()> {
@@ -187,20 +234,15 @@ impl PackageManager for Manager {
                 .run(Cmd::new(&self.program).arg("upgrade").elevated(true), ctx)
                 .await;
         }
-        // Reinstalling by name pulls the mirror's current version - the
-        // closest thing netpkg has to a targeted upgrade.
-        for package in packages {
-            let cmd = Cmd::new(&self.program).arg(&package.name).elevated(true);
-            self.run(cmd, ctx).await?;
-        }
-        Ok(())
+        // `netpkg install` on an installed name offers the mirror's
+        // current version - the closest thing netpkg has to a targeted
+        // upgrade.
+        let cmd = Cmd::new(&self.program)
+            .arg("install")
+            .elevated(true)
+            .args(packages.iter().map(|package| package.name.as_str()));
+        self.run(cmd, ctx).await
     }
-}
-
-/// Case-insensitive substring match, the local stand-in for a search verb.
-fn matches(name: &str, query: &str) -> bool {
-    name.to_ascii_lowercase()
-        .contains(&query.to_ascii_lowercase())
 }
 
 /// The installed-package database directory, preferring the modern
@@ -323,11 +365,92 @@ fn parse_size(text: &str) -> Option<u64> {
     Some((number * factor) as u64)
 }
 
-/// A package as the pkgtools database behind netpkg describes it.
+/// Drop ANSI escapes and resolve backspaces - netpkg's spinner prints
+/// coloured mill characters and erases them with `\b`, all on stdout.
+fn clean_line(line: &str) -> String {
+    let mut cleaned = String::with_capacity(line.len());
+    let mut chars = line.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '\u{1b}' => {
+                if chars.peek() == Some(&'[') {
+                    chars.next();
+                    for code in chars.by_ref() {
+                        if code.is_ascii_alphabetic() {
+                            break;
+                        }
+                    }
+                } else {
+                    chars.next();
+                }
+            }
+            '\u{8}' => {
+                cleaned.pop();
+            }
+            _ => cleaned.push(c),
+        }
+    }
+    cleaned
+}
+
+/// netpkg truncates long column values and marks the cut with `..` (the
+/// remote column carries the marker unconditionally).
+fn untruncate(token: &str) -> &str {
+    token.strip_suffix("..").unwrap_or(token)
+}
+
+/// `netpkg search`: listPkg rows - a status letter, then
+/// `name version build remote info` columns. `I` means installed at the
+/// remote's version, `U` that the remote is newer, `D` that the remote is
+/// older, `R` remote-only; the version column always names the row's
+/// package-list side, so it is the installed version for `I`, the
+/// remote's for the rest (for `D` neither side is stored - the installed
+/// version is not printed at all). The header and the
+/// `Searching`/`Search done.` narration never lead with a lone status
+/// letter and fall out.
+fn parse_search(stdout: &str) -> Vec<NetpkgPackage> {
+    stdout
+        .lines()
+        .filter_map(|raw| {
+            let line = clean_line(raw);
+            let tokens: Vec<&str> = line.split_whitespace().collect();
+            let [status, name, version, rest @ ..] = tokens.as_slice() else {
+                return None;
+            };
+            let state = match *status {
+                "I" | "D" => InstallState::Installed,
+                "U" => InstallState::Upgradable,
+                "R" => InstallState::Available,
+                _ => return None,
+            };
+            let mut package = NetpkgPackage {
+                name: untruncate(name).to_string(),
+                state,
+                ..Default::default()
+            };
+            let version = untruncate(version).to_string();
+            match *status {
+                "I" | "R" => package.version = Some(version),
+                "U" => package.latest_version = Some(version),
+                _ => {}
+            }
+            // rest = build, remote, description...; only the description
+            // is worth keeping.
+            package.description = rest
+                .get(2..)
+                .map(|tail| untruncate(tail.join(" ").as_str()).to_string())
+                .filter(|description| !description.is_empty());
+            Some(package)
+        })
+        .collect()
+}
+
+/// A package as netpkg (and the pkgtools database behind it) describes it.
 #[derive(Debug, Default)]
 pub struct NetpkgPackage {
     pub name: String,
     pub version: Option<String>,
+    pub latest_version: Option<String>,
     pub description: Option<String>,
     pub architecture: Option<String>,
     pub installed_size: Option<u64>,
@@ -346,6 +469,10 @@ impl Package for NetpkgPackage {
 
     fn version(&self) -> Option<&str> {
         self.version.as_deref()
+    }
+
+    fn latest_version(&self) -> Option<&str> {
+        self.latest_version.as_deref()
     }
 
     fn description(&self) -> Option<&str> {
@@ -413,10 +540,40 @@ FILE LIST:
     }
 
     #[test]
-    fn search_matches_are_case_insensitive_substrings() {
-        assert!(matches("mozilla-nss", "NSS"));
-        assert!(matches("xz", "xz"));
-        assert!(!matches("xz", "nano"));
+    fn parses_search_status_rows() {
+        let stdout = "\
+Searching xz ...
+  Name                     Version          Build            Remote                 Info
+I xz                       5.4.4            1                mirror.zenwalk.or..    xz (compression utility)..
+U mozilla-nss              3.101            1                mirror.zenwalk.or..    mozilla-nss (Network Se..
+R xzgv                     0.9.2            2                mirror.zenwalk.or..    xzgv (picture viewer)..
+Search done.
+";
+        let packages = parse_search(stdout);
+        assert_eq!(packages.len(), 3);
+        assert_eq!(packages[0].name, "xz");
+        assert_eq!(packages[0].version.as_deref(), Some("5.4.4"));
+        assert_eq!(packages[0].state, InstallState::Installed);
+        assert_eq!(
+            packages[0].description.as_deref(),
+            Some("xz (compression utility)")
+        );
+        assert_eq!(packages[1].name, "mozilla-nss");
+        assert_eq!(packages[1].version, None);
+        assert_eq!(packages[1].latest_version.as_deref(), Some("3.101"));
+        assert_eq!(packages[1].state, InstallState::Upgradable);
+        assert_eq!(packages[2].state, InstallState::Available);
+    }
+
+    #[test]
+    fn cleans_spinner_noise_from_search_rows() {
+        // The mill spinner prints a coloured character and erases it with
+        // a backspace, in front of the row.
+        let stdout = "\u{1b}[31m/\u{1b}[0m\u{8}I xz  5.4.4  1  mirror.zenwalk.or..  xz (compression utility)..\n";
+        let packages = parse_search(stdout);
+        assert_eq!(packages.len(), 1);
+        assert_eq!(packages[0].name, "xz");
+        assert_eq!(clean_line("plain"), "plain");
     }
 
     #[test]

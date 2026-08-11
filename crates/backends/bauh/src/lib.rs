@@ -5,9 +5,10 @@
 //! (`--tray`, `--settings`, `--reset`) and documents no non-interactive
 //! verbs for installing, removing, listing, searching or upgrading
 //! packages. Nothing here is scriptable, and faking success would be worse
-//! than saying so: every core operation returns an error pointing at the
-//! GUI, and the stub's SEARCH and UPGRADE capabilities are dropped because
-//! the CLI verbs simply do not exist.
+//! than saying so: capabilities() is empty, so election never routes an
+//! operation to bauh, while detection still shows it in `snow managers` as
+//! present but capability-less. The required core methods stay as honest
+//! errors pointing at the GUI for anything that calls them directly.
 
 use async_trait::async_trait;
 use snowcone_core::{
@@ -71,8 +72,11 @@ impl PackageManager for Manager {
         "bauh"
     }
 
+    /// Empty on purpose: not one operation works from the command line,
+    /// and an advertised bit must mean the operation works. This keeps
+    /// election from ever routing to bauh.
     fn capabilities(&self) -> Capabilities {
-        Capabilities::CORE
+        Capabilities::empty()
     }
 
     async fn install(&self, _packages: &[PackageRequest], _ctx: &OpContext) -> Result<()> {
@@ -127,12 +131,14 @@ impl Package for BauhPackage {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use snowcone_core::Operation;
 
     #[test]
-    fn advertises_only_the_core_set() {
-        assert_eq!(Manager.capabilities(), Capabilities::CORE);
-        assert!(!Manager.capabilities().contains(Capabilities::SEARCH));
-        assert!(!Manager.capabilities().contains(Capabilities::UPGRADE));
+    fn advertises_no_capabilities_at_all() {
+        assert_eq!(Manager.capabilities(), Capabilities::empty());
+        assert!(!Manager.supports(Operation::Install));
+        assert!(!Manager.supports(Operation::ListInstalled));
+        assert!(!Manager.supports(Operation::Search));
     }
 
     #[test]

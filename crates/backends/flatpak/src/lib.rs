@@ -15,8 +15,9 @@ use std::path::PathBuf;
 
 use async_trait::async_trait;
 use snowcone_core::{
-    BackendFactory, Capabilities, Cmd, Detection, Elevator, Error, HostInfo, InstallState,
-    ManagerKind, OpContext, Package, PackageManager, PackageRequest, Result, find_program,
+    BackendFactory, Capabilities, Cmd, CmdOutput, Detection, Elevator, Error, HostInfo,
+    InstallState, ManagerKind, OpContext, Operation, Package, PackageManager, PackageRequest,
+    Result, find_program,
 };
 
 const ID: &str = "flatpak";
@@ -100,6 +101,14 @@ impl Manager {
     }
 }
 
+/// Some flatpak versions exit non-zero when a search matches nothing; an
+/// empty stdout or the "No matches found" notice tells that apart from a
+/// real failure.
+fn no_matches(output: &CmdOutput) -> bool {
+    let stdout = output.stdout.trim();
+    stdout.is_empty() || stdout.contains("No matches found")
+}
+
 /// Flatpak refs name branches, not versions; there is no version pin.
 fn reject_pins(requests: &[PackageRequest]) -> Result<()> {
     match requests.iter().find(|request| request.version.is_some()) {
@@ -134,6 +143,13 @@ impl PackageManager for Manager {
             | Capabilities::REFRESH
             | Capabilities::UPGRADE
             | Capabilities::LIST_OUTDATED
+    }
+
+    /// snowcone never prefixes sudo here, but system-scope changes make
+    /// flatpak authorize through polkit, whose agent prompts for
+    /// credentials - callers plan for that prompt off this flag.
+    fn needs_elevation(&self, operation: Operation) -> bool {
+        operation.mutates()
     }
 
     async fn install(&self, packages: &[PackageRequest], ctx: &OpContext) -> Result<()> {
@@ -186,8 +202,13 @@ impl PackageManager for Manager {
             .args(["search", SEARCH_COLUMNS])
             .arg(name)
             .capture(&self.elevator, None)
-            .await?
-            .require_success()?;
+            .await?;
+        // An empty search is NotFound below, not a command failure.
+        let search = if !search.success() && !no_matches(&search) {
+            search.require_success()?
+        } else {
+            search
+        };
         parse_search(&search.stdout)
             .into_iter()
             .find(|package| package.name.eq_ignore_ascii_case(name))
@@ -201,8 +222,11 @@ impl PackageManager for Manager {
             .args(["search", SEARCH_COLUMNS])
             .arg(query)
             .capture(&self.elevator, None)
-            .await?
-            .require_success()?;
+            .await?;
+        if !output.success() && no_matches(&output) {
+            return Ok(Vec::new());
+        }
+        let output = output.require_success()?;
         Ok(boxed(parse_search(&output.stdout)))
     }
 

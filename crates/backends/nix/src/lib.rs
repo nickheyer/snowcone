@@ -4,7 +4,9 @@
 //! flake, forcing `--extra-experimental-features "nix-command flakes"` on
 //! every invocation so stock installs work without nix.conf edits. Profiles
 //! are per-user, so nothing elevates. There is no index to refresh and no
-//! cheap outdated listing, so those capabilities are not advertised.
+//! cheap outdated listing, so those capabilities are not advertised. No
+//! `nix profile` mutation has a dry-run (the flag is still an open upstream
+//! request, NixOS/nix#7227), so `--dry-run` errors for all of them.
 
 use std::path::PathBuf;
 
@@ -143,11 +145,12 @@ impl PackageManager for Manager {
 
     async fn install(&self, packages: &[PackageRequest], ctx: &OpContext) -> Result<()> {
         reject_pins(packages)?;
-        let mut cmd = self.cmd().args(["profile", "install"]);
         if ctx.dry_run {
-            cmd = cmd.arg("--dry-run");
+            // `nix profile install` has no --dry-run flag (upstream request
+            // NixOS/nix#7227 is still open).
+            return Err(Error::Other(format!("{ID}: install has no dry-run mode")));
         }
-        cmd = cmd.args(
+        let cmd = self.cmd().args(["profile", "install"]).args(
             packages
                 .iter()
                 .map(|package| format!("nixpkgs#{}", package.name)),
@@ -210,10 +213,12 @@ impl PackageManager for Manager {
 
     async fn upgrade(&self, packages: &[PackageRequest], ctx: &OpContext) -> Result<()> {
         reject_pins(packages)?;
-        let mut cmd = self.cmd().args(["profile", "upgrade"]);
         if ctx.dry_run {
-            cmd = cmd.arg("--dry-run");
+            // `nix profile upgrade` has no --dry-run flag either
+            // (NixOS/nix#7227).
+            return Err(Error::Other(format!("{ID}: upgrade has no dry-run mode")));
         }
+        let mut cmd = self.cmd().args(["profile", "upgrade"]);
         if packages.is_empty() {
             cmd = cmd.arg("--all");
         } else {

@@ -1,10 +1,13 @@
 //! The package manager interface.
 //!
-//! The four required operations are the universal subset - every manager in
-//! the README, down to `dpkg`, `rpm`, and Slackware's pkgtools, can perform
-//! them. The capability-gated operations default to
-//! [`Error::Unsupported`](crate::Error::Unsupported) so low-level backends
-//! simply don't override them.
+//! The four required methods cover the near-universal subset - every
+//! manager in the README, down to `dpkg`, `rpm`, and Slackware's pkgtools,
+//! can perform them. They are required *methods*, not guaranteed
+//! *capabilities*: a tool that genuinely cannot perform one (bauh, zig,
+//! makedeb) returns [`Error::Unsupported`](crate::Error::Unsupported) and
+//! drops the bit from [`PackageManager::capabilities`], which is the single
+//! source of truth for routing. The capability-gated operations default to
+//! `Error::Unsupported` so backends simply don't override them.
 
 use serde::Serialize;
 use std::fmt;

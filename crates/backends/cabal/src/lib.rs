@@ -1,20 +1,22 @@
 //! Cabal backend for snowcone.
 //!
 //! Drives cabal-install's v2 (nix-style) CLI. The store is content-addressed
-//! and append-only, so cabal has no uninstall verb at all - `remove` errors
-//! with an explanation instead of pretending otherwise. Installed state
-//! comes from `cabal list --installed`, which reads the GHC package
-//! databases - the only install record cabal can report. cabal never
-//! prompts, but replacing an already-installed executable requires
-//! `--overwrite-policy=always`, so upgrade always passes it and install
-//! adds it for `assume_yes`.
+//! and append-only, so cabal has no uninstall verb at all - REMOVE is not
+//! advertised. Installed state comes from `cabal list --installed`, which
+//! reads the GHC package databases - the only install record cabal can
+//! report. cabal never prompts, but replacing an already-installed
+//! executable requires `--overwrite-policy=always`, so upgrade always
+//! passes it and install adds it for `assume_yes`. Version pins use the
+//! documented form, a solver constraint (`--constraint="pkg==ver"`)
+//! alongside the bare package target.
 
 use std::path::PathBuf;
 
 use async_trait::async_trait;
 use snowcone_core::{
     BackendFactory, Capabilities, Cmd, Detection, Elevator, Error, HostInfo, InstallState,
-    ManagerKind, OpContext, Package, PackageManager, PackageRequest, Result, find_program,
+    ManagerKind, OpContext, Operation, Package, PackageManager, PackageRequest, Result,
+    find_program,
 };
 
 const ID: &str = "cabal";
@@ -80,13 +82,20 @@ impl Manager {
     }
 }
 
-/// `name-version` when the request pins one (cabal's versioned package-id
-/// target), bare name otherwise.
-fn spec(request: &PackageRequest) -> String {
-    match &request.version {
-        Some(version) => format!("{}-{version}", request.name),
-        None => request.name.clone(),
-    }
+/// A pinned version becomes the documented constraint flag
+/// (`cabal install --constraint="bar==2.1" bar`) - cabal's target syntax
+/// has no version form.
+fn pin_constraint(request: &PackageRequest) -> Option<String> {
+    request
+        .version
+        .as_ref()
+        .map(|version| format!("--constraint={}=={version}", request.name))
+}
+
+/// Constraint flags for every pin, then the bare package-name targets.
+fn with_targets(cmd: Cmd, packages: &[PackageRequest]) -> Cmd {
+    cmd.args(packages.iter().filter_map(pin_constraint))
+        .args(packages.iter().map(|request| request.name.as_str()))
 }
 
 #[async_trait]
@@ -108,7 +117,9 @@ impl PackageManager for Manager {
     }
 
     fn capabilities(&self) -> Capabilities {
-        Capabilities::CORE
+        Capabilities::INSTALL
+            | Capabilities::LIST_INSTALLED
+            | Capabilities::INFO
             | Capabilities::SEARCH
             | Capabilities::REFRESH
             | Capabilities::UPGRADE
@@ -123,15 +134,14 @@ impl PackageManager for Manager {
         if ctx.dry_run {
             cmd = cmd.arg("--dry-run");
         }
-        self.run(cmd.args(packages.iter().map(spec)), ctx).await
+        self.run(with_targets(cmd, packages), ctx).await
     }
 
+    /// cabal has no uninstall verb - the v2 store is content-addressed and
+    /// append-only; removal is deleting the executable symlink from the
+    /// install dir by hand.
     async fn remove(&self, _packages: &[PackageRequest], _ctx: &OpContext) -> Result<()> {
-        Err(Error::Other(format!(
-            "{ID}: cabal has no uninstall verb - the v2 store is content-addressed and \
-             append-only; delete the executable symlink from the install dir \
-             (~/.cabal/bin or ~/.local/bin) by hand"
-        )))
+        Err(self.unsupported(Operation::Remove))
     }
 
     async fn list_installed(&self) -> Result<Vec<Box<dyn Package>>> {
@@ -181,6 +191,9 @@ impl PackageManager for Manager {
         self.run(self.cmd().arg("update"), ctx).await
     }
 
+    /// Targeted upgrade is a reinstall of the latest version over the old
+    /// executable; cabal has no verb covering every installed executable,
+    /// so an empty upgrade is refused rather than faked.
     async fn upgrade(&self, packages: &[PackageRequest], ctx: &OpContext) -> Result<()> {
         if packages.is_empty() {
             return Err(Error::Other(format!(
@@ -191,7 +204,7 @@ impl PackageManager for Manager {
         if ctx.dry_run {
             cmd = cmd.arg("--dry-run");
         }
-        self.run(cmd.args(packages.iter().map(spec)), ctx).await
+        self.run(with_targets(cmd, packages), ctx).await
     }
 }
 
@@ -519,8 +532,11 @@ Warning: this line is not a package
     }
 
     #[test]
-    fn formats_version_pins() {
-        assert_eq!(spec(&PackageRequest::parse("hlint@3.8")), "hlint-3.8");
-        assert_eq!(spec(&PackageRequest::parse("hlint")), "hlint");
+    fn formats_version_pins_as_constraints() {
+        assert_eq!(
+            pin_constraint(&PackageRequest::parse("hlint@3.8")).as_deref(),
+            Some("--constraint=hlint==3.8")
+        );
+        assert_eq!(pin_constraint(&PackageRequest::parse("hlint")), None);
     }
 }

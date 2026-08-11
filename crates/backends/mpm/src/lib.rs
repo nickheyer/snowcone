@@ -1,6 +1,10 @@
 //! MiKTeX mpm backend for snowcone.
 //!
-//! Supports both the current `miktex packages` frontend and legacy `mpm`.
+//! Supports both the current `miktex packages` frontend and legacy `mpm`
+//! (which modern MiKTeX ships as a deprecated shim over `miktex
+//! packages`). Limitation: everything here operates on the per-user
+//! MiKTeX setup; a shared (system-wide) MiKTeX would need `--admin` plus
+//! administrator rights, which this backend does not attempt to detect.
 
 use std::path::PathBuf;
 
@@ -118,7 +122,11 @@ impl PackageManager for Manager {
     }
 
     fn capabilities(&self) -> Capabilities {
-        Capabilities::CORE | Capabilities::SEARCH | Capabilities::REFRESH | Capabilities::UPGRADE
+        Capabilities::CORE
+            | Capabilities::SEARCH
+            | Capabilities::REFRESH
+            | Capabilities::UPGRADE
+            | Capabilities::LIST_OUTDATED
     }
 
     async fn install(&self, _packages: &[PackageRequest], _ctx: &OpContext) -> Result<()> {
@@ -270,6 +278,25 @@ impl PackageManager for Manager {
             Ok(())
         }
     }
+
+    /// `miktex packages check-update` (which legacy `mpm --find-updates`
+    /// shims to) prints one updatable package id per line and exits 100
+    /// when updates exist, 0 when none.
+    async fn list_outdated(&self) -> Result<Vec<Box<dyn Package>>> {
+        let cmd = if self.modern {
+            self.cmd().arg("check-update")
+        } else {
+            self.cmd().arg("--find-updates")
+        };
+        let out = cmd.capture(&self.elevator, None).await?;
+        match out.status.code() {
+            Some(0) | Some(100) => Ok(boxed(parse_updates(&out.stdout))),
+            _ => {
+                out.require_success()?;
+                Ok(Vec::new())
+            }
+        }
+    }
 }
 
 fn boxed(v: Vec<MpmPackage>) -> Vec<Box<dyn Package>> {
@@ -313,31 +340,50 @@ fn parse_template(stdout: &str) -> Vec<MpmPackage> {
         })
         .collect()
 }
+/// Legacy `mpm --list` renders the template
+/// `{isInstalled} {numFiles} {size} {id}` (MiKTeX source, mpm.cpp): an
+/// install marker, a file count, a size, and the package id last. The
+/// format is deprecated and undocumented, so parse defensively: the id is
+/// the last token, the marker is the first, and no version exists in this
+/// output at all.
 fn parse_legacy(stdout: &str) -> Vec<MpmPackage> {
     stdout
         .lines()
         .filter_map(|l| {
-            let mut f = l.split_whitespace();
-            let marker = f.next()?;
-            let installed = matches!(marker, "i" | "I" | "installed");
-            let name = if installed || matches!(marker, "-" | "u") {
-                f.next()?
-            } else {
-                marker
-            };
-            if name.starts_with("mpm:") {
+            let fields: Vec<&str> = l.split_whitespace().collect();
+            let (&marker, rest) = fields.split_first()?;
+            let name = *rest.last()?;
+            if marker.starts_with("mpm:") || name.starts_with("mpm:") {
                 return None;
             }
-            let version = f.next().map(str::to_owned);
             Some(MpmPackage {
                 name: name.into(),
-                version,
+                version: None,
                 description: None,
-                state: if installed {
+                state: if matches!(marker, "true" | "i" | "I" | "installed") {
                     InstallState::Installed
                 } else {
                     InstallState::Available
                 },
+            })
+        })
+        .collect()
+}
+/// `check-update`: one package id per line; ids never contain spaces, so
+/// any status sentences are dropped.
+fn parse_updates(stdout: &str) -> Vec<MpmPackage> {
+    stdout
+        .lines()
+        .filter_map(|l| {
+            let name = l.trim();
+            if name.is_empty() || name.contains(' ') {
+                return None;
+            }
+            Some(MpmPackage {
+                name: name.into(),
+                version: None,
+                description: None,
+                state: InstallState::Upgradable,
             })
         })
         .collect()
@@ -353,9 +399,22 @@ mod tests {
     }
     #[test]
     fn parses_legacy_rows() {
-        let p = parse_legacy("i amsmath 2.17y\n- foo 1.0\n");
+        // Shape of the `{isInstalled} {numFiles} {size} {id}` template
+        // legacy `mpm --list` renders (MiKTeX source, mpm.cpp).
+        let p = parse_legacy("true 32 421312 amsmath\nfalse 4 63968 12many\n");
         assert_eq!(p.len(), 2);
         assert_eq!(p[0].name, "amsmath");
+        assert_eq!(p[0].state, InstallState::Installed);
+        assert_eq!(p[0].version, None);
+        assert_eq!(p[1].name, "12many");
+        assert_eq!(p[1].state, InstallState::Available);
+    }
+    #[test]
+    fn parses_check_update_ids() {
+        let p = parse_updates("amsmath\nmiktex-runtime-bin-x64\n");
+        assert_eq!(p.len(), 2);
+        assert_eq!(p[1].name, "miktex-runtime-bin-x64");
+        assert_eq!(p[0].state, InstallState::Upgradable);
     }
     #[test]
     fn rejects_pins() {

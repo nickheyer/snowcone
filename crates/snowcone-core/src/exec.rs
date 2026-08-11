@@ -56,6 +56,22 @@ impl Elevator {
         }
     }
 
+    /// Whether this helper can validate credentials with a password fed
+    /// on stdin, so a TUI can collect it in its own modal instead of
+    /// letting the helper touch the terminal. One explicit entry per
+    /// supported helper - no inference:
+    ///
+    /// - `sudo`: yes. `-S` reads the password from stdin and `-p ""`
+    ///   silences the prompt text.
+    /// - `doas` / `run0` / `pkexec`: no stdin password mode; they own
+    ///   their prompting.
+    pub fn accepts_password_on_stdin(&self) -> bool {
+        match self {
+            Elevator::Helper(helper) => helper.file_name().is_some_and(|name| name == "sudo"),
+            Elevator::NotNeeded | Elevator::Unavailable => false,
+        }
+    }
+
     /// Acquire elevated credentials once, up front, on the controlling
     /// terminal, and keep them fresh until the returned session is dropped.
     ///
@@ -90,28 +106,73 @@ impl Elevator {
                 helper.display()
             )));
         }
-        let helper = helper.clone();
-        let refresher = tokio::spawn(async move {
-            let mut ticker = tokio::time::interval(ElevationSession::REFRESH);
-            ticker.tick().await; // first tick fires immediately; -v just ran
-            loop {
-                ticker.tick().await;
-                // -n: never prompt from the background. If the refresh
-                // loses the race with expiry, the next elevated command
-                // prompts on the tty exactly as it would have anyway.
-                let _ = Command::new(&helper)
-                    .args(["-n", "-v"])
-                    .stdin(Stdio::null())
-                    .stdout(Stdio::null())
-                    .stderr(Stdio::null())
-                    .status()
-                    .await;
-            }
-        });
         Ok(ElevationSession {
-            refresher: Some(refresher),
+            refresher: Some(spawn_refresher(helper.clone())),
         })
     }
+
+    /// [`Self::hold`] with the password supplied by the caller instead of
+    /// prompted on the terminal: `sudo -S -p "" -v` reads it from stdin,
+    /// so the helper never draws over a TUI. stdin is closed after one
+    /// write - a wrong password fails at EOF instead of sudo re-prompting
+    /// into a pipe forever - and a failed check returns
+    /// [`Error::AuthenticationFailed`] so callers can offer a retry.
+    ///
+    /// Helpers without a stdin password mode return the same inert session
+    /// as [`Self::hold`]; callers gate the password UI on
+    /// [`Self::accepts_password_on_stdin`].
+    pub async fn hold_with_password(&self, password: &str) -> Result<ElevationSession> {
+        if let Elevator::Unavailable = self {
+            return Err(Error::ElevationUnavailable);
+        }
+        if !self.accepts_password_on_stdin() {
+            return Ok(ElevationSession { refresher: None });
+        }
+        let Elevator::Helper(helper) = self else {
+            unreachable!("accepts_password_on_stdin is false for non-helpers");
+        };
+        let mut child = Command::new(helper)
+            .args(["-S", "-p", "", "-v"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .kill_on_drop(true)
+            .spawn()?;
+        if let Some(mut stdin) = child.stdin.take() {
+            use tokio::io::AsyncWriteExt as _;
+            let _ = stdin.write_all(password.as_bytes()).await;
+            let _ = stdin.write_all(b"\n").await;
+            // Dropping stdin closes the pipe.
+        }
+        let status = child.wait().await?;
+        if !status.success() {
+            return Err(Error::AuthenticationFailed);
+        }
+        Ok(ElevationSession {
+            refresher: Some(spawn_refresher(helper.clone())),
+        })
+    }
+}
+
+/// Keep a sudo timestamp warm until aborted (see [`Elevator::hold`]).
+fn spawn_refresher(helper: PathBuf) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(ElevationSession::REFRESH);
+        ticker.tick().await; // first tick fires immediately; -v just ran
+        loop {
+            ticker.tick().await;
+            // -n: never prompt from the background. If the refresh loses
+            // the race with expiry, the next elevated command prompts on
+            // the tty exactly as it would have anyway.
+            let _ = Command::new(&helper)
+                .args(["-n", "-v"])
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()
+                .await;
+        }
+    })
 }
 
 /// Live credential session from [`Elevator::hold`]. Dropping it stops the
@@ -190,7 +251,11 @@ impl Cmd {
         elevator: &Elevator,
         events: Option<&EventSender>,
     ) -> Result<CmdOutput> {
-        let (mut command, rendered) = self.build(elevator)?;
+        // never_prompt: stdin is closed here, but sudo would still open
+        // /dev/tty and paint its prompt over whatever owns the terminal
+        // (the TUI). With -n a cold credential cache fails cleanly
+        // instead; callers hold a warm session (`Elevator::hold*`) first.
+        let (mut command, rendered) = self.build_with(elevator, true)?;
         command
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
@@ -221,7 +286,7 @@ impl Cmd {
     /// is worse than letting the child finish - sudo can't relay SIGKILL,
     /// so the elevated grandchild would survive orphaned mid-write anyway.
     pub async fn run_interactive(self, elevator: &Elevator) -> Result<CmdOutput> {
-        let (mut command, rendered) = self.build(elevator)?;
+        let (mut command, rendered) = self.build_with(elevator, false)?;
         command
             .stdin(Stdio::inherit())
             .stdout(Stdio::inherit())
@@ -235,12 +300,18 @@ impl Cmd {
         })
     }
 
-    fn build(self, elevator: &Elevator) -> Result<(Command, String)> {
+    fn build_with(self, elevator: &Elevator, never_prompt: bool) -> Result<(Command, String)> {
         let (program, args) = if self.elevate {
             match elevator {
                 Elevator::NotNeeded => (self.program, self.args),
                 Elevator::Helper(helper) => {
-                    let mut args = vec![self.program.into_os_string()];
+                    let mut args = Vec::new();
+                    if never_prompt {
+                        if let Some(flag) = never_prompt_flag(helper) {
+                            args.push(OsString::from(flag));
+                        }
+                    }
+                    args.push(self.program.into_os_string());
                     args.extend(self.args);
                     (helper.clone(), args)
                 }
@@ -256,6 +327,21 @@ impl Cmd {
         command.args(args);
         command.envs(self.envs);
         Ok((command, rendered))
+    }
+}
+
+/// The helper's "fail instead of prompting" flag, for captured runs where
+/// no terminal is available to prompt on. One explicit entry per supported
+/// helper - no inference:
+///
+/// - `sudo -n` / `doas -n`: non-interactive, error out if a password would
+///   be needed.
+/// - `run0` / `pkexec`: no such flag; they authorize through the polkit
+///   agent, which owns its own UI.
+fn never_prompt_flag(helper: &Path) -> Option<&'static str> {
+    match helper.file_name()?.to_str()? {
+        "sudo" | "doas" => Some("-n"),
+        _ => None,
     }
 }
 
@@ -505,15 +591,31 @@ mod tests {
             .args(["install", "-y", "ripgrep"])
             .elevated(true);
         let elevator = Elevator::Helper(PathBuf::from("/usr/bin/sudo"));
-        let (_, rendered) = cmd.build(&elevator).unwrap();
+        let (_, rendered) = cmd.build_with(&elevator, false).unwrap();
         assert_eq!(rendered, "/usr/bin/sudo apt install -y ripgrep");
+    }
+
+    #[test]
+    fn captured_elevation_never_prompts() {
+        let cmd = Cmd::new("apt").arg("update").elevated(true);
+        let elevator = Elevator::Helper(PathBuf::from("/usr/bin/sudo"));
+        let (_, rendered) = cmd.build_with(&elevator, true).unwrap();
+        assert_eq!(rendered, "/usr/bin/sudo -n apt update");
+    }
+
+    #[test]
+    fn helpers_without_a_never_prompt_flag_get_none() {
+        let cmd = Cmd::new("apt").arg("update").elevated(true);
+        let elevator = Elevator::Helper(PathBuf::from("/usr/bin/pkexec"));
+        let (_, rendered) = cmd.build_with(&elevator, true).unwrap();
+        assert_eq!(rendered, "/usr/bin/pkexec apt update");
     }
 
     #[test]
     fn rendered_command_without_elevation() {
         let (_, rendered) = Cmd::new("npm")
             .arg("install")
-            .build(&Elevator::Unavailable)
+            .build_with(&Elevator::Unavailable, false)
             .unwrap();
         assert_eq!(rendered, "npm install");
     }
@@ -522,8 +624,18 @@ mod tests {
     fn elevation_unavailable_fails() {
         let error = Cmd::new("apt")
             .elevated(true)
-            .build(&Elevator::Unavailable)
+            .build_with(&Elevator::Unavailable, false)
             .unwrap_err();
         assert!(matches!(error, Error::ElevationUnavailable));
+    }
+
+    #[test]
+    fn only_sudo_accepts_a_stdin_password() {
+        let sudo = Elevator::Helper(PathBuf::from("/usr/bin/sudo"));
+        let doas = Elevator::Helper(PathBuf::from("/usr/bin/doas"));
+        assert!(sudo.accepts_password_on_stdin());
+        assert!(!doas.accepts_password_on_stdin());
+        assert!(!Elevator::NotNeeded.accepts_password_on_stdin());
+        assert!(!Elevator::Unavailable.accepts_password_on_stdin());
     }
 }

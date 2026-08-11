@@ -81,9 +81,11 @@ impl Manager {
     }
 
     /// `resolve`/`uninstall` with `-x` unless this is a dry run - omitting
-    /// `-x` is cave's native "display only" mode.
+    /// `-x` is cave's native "display only" mode, and a display-only pass
+    /// changes nothing, so root (and its credential prompt) comes only
+    /// with `-x`.
     fn mutation(&self, subcommand: &str, ctx: &OpContext) -> Cmd {
-        let mut cmd = self.cmd().arg(subcommand).elevated(true);
+        let mut cmd = self.cmd().arg(subcommand).elevated(!ctx.dry_run);
         if !ctx.dry_run {
             cmd = cmd.arg("-x");
         }
@@ -214,7 +216,11 @@ impl PackageManager for Manager {
 
     async fn upgrade(&self, packages: &[PackageRequest], ctx: &OpContext) -> Result<()> {
         let cmd = if packages.is_empty() {
-            self.mutation("resolve", ctx).arg("world")
+            // `-c/--complete` is "do all optional work. This option is
+            // often used when updating 'world'" (cave-resolve(1)); without
+            // it the resolution keeps more of the installed set than a
+            // full upgrade should.
+            self.mutation("resolve", ctx).args(["-c", "world"])
         } else {
             self.mutation("resolve", ctx)
                 .args(packages.iter().map(spec))
@@ -224,6 +230,8 @@ impl PackageManager for Manager {
 
     async fn list_outdated(&self) -> Result<Vec<Box<dyn Package>>> {
         // A no-execute resolution of world is cave's only upgrade preview.
+        // Deliberately without `-c`: the complete pass adds same-version
+        // rebuilds, which are not "outdated" packages.
         let output = self
             .query()
             .args(["resolve", "world"])

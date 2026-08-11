@@ -134,10 +134,12 @@ impl PackageManager for Manager {
             | Capabilities::LIST_OUTDATED
     }
 
-    /// Pacstall drives sudo itself for mutations - snowcone never elevates
-    /// it, but a credential prompt is still coming.
+    /// Pacstall drives sudo itself - snowcone never elevates it, but a
+    /// credential prompt is still coming. That covers more than the
+    /// mutations: `-Lu` also re-execs under sudo (`elevate "$@"` upstream),
+    /// so ListOutdated prompts on a cold sudo timestamp too.
     fn needs_elevation(&self, operation: Operation) -> bool {
-        operation.mutates()
+        operation.mutates() || matches!(operation, Operation::ListOutdated)
     }
 
     async fn install(&self, packages: &[PackageRequest], ctx: &OpContext) -> Result<()> {
@@ -229,8 +231,10 @@ impl PackageManager for Manager {
     }
 
     async fn list_outdated(&self) -> Result<Vec<Box<dyn Package>>> {
-        // `-Lu` self-elevates like the mutations do, and compares against
-        // the remote repositories, so it is slow and may prompt.
+        // `-Lu` self-elevates like the mutations do (needs_elevation
+        // declares it so the TUI plans for the prompt), and compares
+        // against the remote repositories, so it is slow. The command
+        // itself stays unelevated - pacstall does its own sudo dance.
         let output = self
             .query()
             .arg("-Lu")

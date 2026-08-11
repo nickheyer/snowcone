@@ -6,8 +6,8 @@
 //! coursier has no app metadata verb - so listings and info() carry no
 //! versions. coursier never prompts, so `assume_yes` has nothing to do,
 //! and none of the app commands document a dry-run flag. Search maps onto
-//! `cs complete-dep`, which completes Maven coordinates from the
-//! repositories' directory listings.
+//! `cs search`, which matches application names in the configured channels
+//! - the same names `cs install` consumes.
 
 use std::path::PathBuf;
 
@@ -170,12 +170,12 @@ impl PackageManager for Manager {
     async fn search(&self, query: &str) -> Result<Vec<Box<dyn Package>>> {
         let output = self
             .query()
-            .arg("complete-dep")
+            .arg("search")
             .arg(query)
             .capture(&self.elevator, None)
             .await?
             .require_success()?;
-        Ok(parse_completions(&output.stdout)
+        Ok(parse_search(&output.stdout)
             .into_iter()
             .map(|package| Box::new(package) as Box<dyn Package>)
             .collect())
@@ -226,10 +226,9 @@ fn parse_list(stdout: &str) -> Vec<CoursierPackage> {
         .collect()
 }
 
-/// `cs complete-dep`: one Maven-coordinate completion per line - orgs for
-/// a bare prefix, artifact names after `org:`, versions after
-/// `org:artifact:`.
-fn parse_completions(stdout: &str) -> Vec<CoursierPackage> {
+/// `cs search`: one matching installable application name per line from
+/// the configured channels, nothing else (empty on no match).
+fn parse_search(stdout: &str) -> Vec<CoursierPackage> {
     stdout
         .lines()
         .filter_map(|line| {
@@ -283,11 +282,12 @@ mod tests {
     }
 
     #[test]
-    fn parses_dependency_completions() {
-        let stdout = "io.circe\nio.circe.optics\n";
-        let packages = parse_completions(stdout);
-        assert_eq!(packages.len(), 2);
-        assert_eq!(packages[1].name, "io.circe.optics");
+    fn parses_app_search_results() {
+        // `cs search fmt` output, from coursier's cli-overview docs.
+        let stdout = "scalafmt\n";
+        let packages = parse_search(stdout);
+        assert_eq!(packages.len(), 1);
+        assert_eq!(packages[0].name, "scalafmt");
         assert_eq!(packages[0].state, InstallState::Available);
     }
 

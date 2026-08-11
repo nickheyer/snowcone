@@ -3,11 +3,16 @@
 //! apx (Vanilla OS) wraps a distrobox container around a stock package
 //! manager, so every operation runs as the user - nothing is ever elevated.
 //! This backend speaks the apx v1 verb set (`install`, `remove`, `search`,
-//! `show`, `list`, `upgrade` against the default container), whose output
-//! is the container's apt relayed verbatim; apx v2 replaced these with
-//! per-subsystem commands and will not answer them. apx has no yes-flag
-//! and no dry-run of its own, so prompts run interactively and `--dry-run`
-//! errors.
+//! `show`, `list`, `upgrade` against the default container). apx v2+
+//! replaced those with a subsystem-scoped CLI (`apx <subsystem> install …`
+//! plus `subsystems`/`stacks`/`pkgmanagers` management verbs) that rejects
+//! every v1 spelling, so detection probes the generation and reports v2+
+//! hosts unavailable rather than shipping verbs that cannot work. The
+//! parsers assume the default container's manager is apt-flavored (v1
+//! defaulted to an Ubuntu container), so `list`/`search`/`show` output is
+//! read as apt's; other container flavors parse to little or nothing. apx
+//! has no yes-flag and no dry-run of its own, so prompts run interactively
+//! and `--dry-run` errors.
 
 use std::path::PathBuf;
 
@@ -33,7 +38,15 @@ impl BackendFactory for Factory {
 
     fn detect(&self, _host: &HostInfo) -> Detection {
         match PROGRAMS.iter().find_map(|program| find_program(program)) {
-            Some(program) => Detection::Available { program },
+            Some(program) => {
+                if speaks_v1(&program) {
+                    Detection::Available { program }
+                } else {
+                    Detection::Unavailable {
+                        reason: V2_REASON.to_string(),
+                    }
+                }
+            }
             None => Detection::Unavailable {
                 reason: format!("`{}` not found on PATH", PROGRAMS[0]),
             },
@@ -45,11 +58,32 @@ impl BackendFactory for Factory {
             .iter()
             .find_map(|program| find_program(program))
             .ok_or_else(|| Error::Unavailable(ID.to_string()))?;
+        if !speaks_v1(&program) {
+            return Err(Error::Other(format!("{ID}: {V2_REASON}")));
+        }
         Ok(Box::new(Manager {
             program,
             elevator: Elevator::detect(host),
         }))
     }
+}
+
+const V2_REASON: &str = "this apx is v2+, whose CLI scopes every verb to a subsystem; only the apx v1 verb set is supported";
+
+/// Tell the apx generations apart without touching any container: v2+ has
+/// a top-level `subsystems` command and answers its `--help`, while v1's
+/// CLI rejects it as an unknown command. A probe that cannot run at all
+/// also counts as v1 - whatever is wrong will surface identically on the
+/// real operations. (apx v2 additionally refuses to run as root, which
+/// fails this probe the same way it fails every other apx invocation.)
+fn speaks_v1(program: &std::path::Path) -> bool {
+    !std::process::Command::new(program)
+        .args(["subsystems", "--help"])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success())
 }
 
 struct Manager {
@@ -458,5 +492,35 @@ Description: line-oriented search tool
     fn rejects_version_pins() {
         assert!(reject_pins(&[PackageRequest::parse("ripgrep@14.1.0-1")]).is_err());
         assert!(reject_pins(&[PackageRequest::parse("ripgrep")]).is_ok());
+    }
+
+    #[test]
+    fn version_probe_tells_the_generations_apart() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = std::env::temp_dir().join(format!("snowcone-apx-probe-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        // v2+: `apx subsystems --help` is a real command and exits 0.
+        // v1 (cobra): "Error: unknown command \"subsystems\"", exit 1.
+        for (name, script) in [
+            (
+                "apx-v2",
+                "#!/bin/sh\n[ \"$1\" = subsystems ] && exit 0\nexit 1\n",
+            ),
+            (
+                "apx-v1",
+                "#!/bin/sh\necho 'Error: unknown command \"subsystems\" for \"apx\"' >&2\nexit 1\n",
+            ),
+        ] {
+            let path = dir.join(name);
+            std::fs::write(&path, script).unwrap();
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let v1 = speaks_v1(&dir.join("apx-v1"));
+        let v2 = speaks_v1(&dir.join("apx-v2"));
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(v1);
+        assert!(!v2);
     }
 }

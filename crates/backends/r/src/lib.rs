@@ -49,7 +49,10 @@ struct Manager {
 
 impl Manager {
     fn expr(&self, script: &str) -> Cmd {
-        Cmd::new(&self.program).args(["--vanilla", "-e", script, "--args"])
+        // Rscript already routes everything after `-e <expr>` to
+        // commandArgs(trailingOnly=TRUE); an explicit `--args` literal here
+        // would itself land in those arguments.
+        Cmd::new(&self.program).args(["--vanilla", "-e", script])
     }
     async fn run(&self, cmd: Cmd, ctx: &OpContext) -> Result<()> {
         let out = match &ctx.events {
@@ -68,8 +71,12 @@ impl Manager {
     }
 }
 
-const INSTALLED: &str = r#"x<-as.data.frame(installed.packages()[,c("Package","Version","Title"),drop=FALSE]);x$Title<-gsub("[\\t\\r\\n]+"," ",x$Title);write.table(x,sep="\t",row.names=FALSE,col.names=FALSE,quote=FALSE,na="")"#;
-const AVAILABLE: &str = r#"a<-as.data.frame(available.packages()[,c("Package","Version","Title"),drop=FALSE]);n<-commandArgs(trailingOnly=TRUE);a<-a[a$Package%in%n,,drop=FALSE];a$Title<-gsub("[\\t\\r\\n]+"," ",a$Title);write.table(a,sep="\t",row.names=FALSE,col.names=FALSE,quote=FALSE,na="")"#;
+// Title is not a default column of either matrix; `fields="Title"` adds it
+// (from DESCRIPTION for installed.packages, from the repository PACKAGES
+// index for available.packages, where a repository that omits it yields NA
+// and the empty-string na= drops the description downstream).
+const INSTALLED: &str = r#"x<-as.data.frame(installed.packages(fields="Title")[,c("Package","Version","Title"),drop=FALSE]);x$Title<-gsub("[\\t\\r\\n]+"," ",x$Title);write.table(x,sep="\t",row.names=FALSE,col.names=FALSE,quote=FALSE,na="")"#;
+const AVAILABLE: &str = r#"a<-as.data.frame(available.packages(fields="Title")[,c("Package","Version","Title"),drop=FALSE]);n<-commandArgs(trailingOnly=TRUE);a<-a[a$Package%in%n,,drop=FALSE];a$Title<-gsub("[\\t\\r\\n]+"," ",a$Title);write.table(a,sep="\t",row.names=FALSE,col.names=FALSE,quote=FALSE,na="")"#;
 const OUTDATED: &str = r#"x<-old.packages();if(!is.null(x)){x<-as.data.frame(x[,c("Package","Installed","ReposVer"),drop=FALSE]);write.table(x,sep="\t",row.names=FALSE,col.names=FALSE,quote=FALSE,na="")}"#;
 
 fn reject_pins(packages: &[PackageRequest]) -> Result<()> {

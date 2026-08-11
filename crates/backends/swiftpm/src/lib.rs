@@ -5,7 +5,9 @@
 //! dependencies, its resolver fetches them, and the resolved dependency graph
 //! supplies concrete package metadata. SwiftPM has no dependency-removal
 //! command, so removal is rejected rather than rewriting Swift source with an
-//! incomplete parser.
+//! incomplete parser. Note that `swift package add-dependency` (install)
+//! requires Swift 6.0 or newer; older toolchains report it as an unknown
+//! subcommand.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -233,7 +235,13 @@ impl PackageManager for Manager {
             .await?
             .require_success()?;
         let mut graph = self.resolved().await?;
-        let changes = parse_dry_run_updates(&output.stdout);
+        // SwiftPM emits the dry-run change report through its observability
+        // scope, which prints to stderr; whichever stream yields entries
+        // wins in case a toolchain moves it.
+        let mut changes = parse_dry_run_updates(&output.stderr);
+        if changes.is_empty() {
+            changes = parse_dry_run_updates(&output.stdout);
+        }
         let mut packages = Vec::new();
         for (identity, current, latest) in changes {
             let mut package = graph

@@ -3,16 +3,19 @@
 //! fpm dependencies are project-scoped and declared in `fpm.toml`.
 //! `fpm update --fetch-only` installs declared dependencies into the build
 //! dependency tree; `fpm update` upgrades them. Resolved state is read from
-//! fpm's own `build/cache.toml` (or `$FPM_BUILD_DIR/cache.toml`). fpm has no
-//! command that removes a dependency declaration, so removal is rejected
-//! instead of editing user manifests behind fpm's back.
+//! fpm's own `build/cache.toml`. fpm has no command that removes a
+//! dependency declaration, so REMOVE is not advertised rather than editing
+//! user manifests behind fpm's back. The `fpm` program name is shared with
+//! Effing Package Management, so detection probes `fpm --version` for the
+//! Fortran banner before claiming the binary.
 
 use std::path::{Path, PathBuf};
 
 use async_trait::async_trait;
 use snowcone_core::{
     BackendFactory, Capabilities, Cmd, Detection, Elevator, Error, HostInfo, InstallState,
-    ManagerKind, OpContext, Package, PackageManager, PackageRequest, Result, find_program,
+    ManagerKind, OpContext, Operation, Package, PackageManager, PackageRequest, Result,
+    find_program,
 };
 use toml::Value;
 
@@ -32,7 +35,14 @@ impl BackendFactory for Factory {
 
     fn detect(&self, _host: &HostInfo) -> Detection {
         match PROGRAMS.iter().find_map(|program| find_program(program)) {
-            Some(program) => Detection::Available { program },
+            Some(program) if is_fortran_fpm(&program) => Detection::Available { program },
+            Some(_) => Detection::Unavailable {
+                reason: format!(
+                    "`{}` on PATH is not Fortran fpm (its --version banner lacks the \
+                     Fortran description; probably Effing Package Management)",
+                    PROGRAMS[0]
+                ),
+            },
             None => Detection::Unavailable {
                 reason: format!("`{}` not found on PATH", PROGRAMS[0]),
             },
@@ -40,12 +50,31 @@ impl BackendFactory for Factory {
     }
 
     fn create(&self, host: &HostInfo) -> Result<Box<dyn PackageManager>> {
-        let program = find_program(PROGRAMS[0]).ok_or_else(|| Error::Unavailable(ID.into()))?;
+        let program = find_program(PROGRAMS[0])
+            .filter(|program| is_fortran_fpm(program))
+            .ok_or_else(|| Error::Unavailable(ID.into()))?;
         Ok(Box::new(Manager {
             program,
             elevator: Elevator::detect(host),
         }))
     }
+}
+
+/// `fpm` is also Effing Package Management's program name. Fortran fpm's
+/// `--version` banner includes `Description: A Fortran package manager and
+/// build system` (fortran-lang/fpm, fpm_command_line.f90); Effing fpm
+/// prints a bare version number.
+fn is_fortran_fpm(program: &Path) -> bool {
+    std::process::Command::new(program)
+        .arg("--version")
+        .stdin(std::process::Stdio::null())
+        .output()
+        .is_ok_and(|output| {
+            output.status.success()
+                && String::from_utf8_lossy(&output.stdout)
+                    .to_ascii_lowercase()
+                    .contains("fortran")
+        })
 }
 
 struct Manager {
@@ -68,10 +97,7 @@ impl Manager {
     }
 
     fn installed(&self) -> Result<Vec<FpmPackage>> {
-        let build_dir = std::env::var_os("FPM_BUILD_DIR")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from("build"));
-        let cache = build_dir.join("cache.toml");
+        let cache = Path::new("build").join("cache.toml");
         let contents = std::fs::read_to_string(&cache).map_err(|error| {
             Error::Other(format!(
                 "{ID}: cannot read resolved dependency cache `{}`: {error}; run `fpm update --fetch-only` first",
@@ -111,7 +137,10 @@ impl PackageManager for Manager {
     }
 
     fn capabilities(&self) -> Capabilities {
-        Capabilities::CORE | Capabilities::UPGRADE
+        Capabilities::INSTALL
+            | Capabilities::LIST_INSTALLED
+            | Capabilities::INFO
+            | Capabilities::UPGRADE
     }
 
     async fn install(&self, packages: &[PackageRequest], ctx: &OpContext) -> Result<()> {
@@ -126,13 +155,10 @@ impl PackageManager for Manager {
         self.run(cmd, ctx).await
     }
 
-    async fn remove(&self, packages: &[PackageRequest], _ctx: &OpContext) -> Result<()> {
-        let target = packages
-            .first()
-            .map_or("a dependency", |package| package.name.as_str());
-        Err(Error::Other(format!(
-            "{ID}: cannot remove `{target}` by command; remove it from fpm.toml, then run `fpm update --clean`"
-        )))
+    /// fpm has no verb that removes a dependency declaration; that means
+    /// editing fpm.toml and running `fpm update --clean` by hand.
+    async fn remove(&self, _packages: &[PackageRequest], _ctx: &OpContext) -> Result<()> {
+        Err(self.unsupported(Operation::Remove))
     }
 
     async fn list_installed(&self) -> Result<Vec<Box<dyn Package>>> {

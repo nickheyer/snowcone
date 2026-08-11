@@ -156,8 +156,16 @@ impl PackageManager for Manager {
             return Err(self.no_dry_run("remove"));
         }
         for package in packages {
-            self.run(self.cmd().arg("remove").arg(&package.name), ctx)
-                .await?;
+            // `dub remove` prompts to pick a version when several are
+            // cached. The picker is fine in CLI passthrough, but assume-yes
+            // and captured runs have no stdin to answer it, so
+            // `--non-interactive` skips the prompt there (removing every
+            // cached version, the complete removal).
+            let mut cmd = self.cmd().arg("remove");
+            if ctx.assume_yes || ctx.events.is_some() {
+                cmd = cmd.arg("--non-interactive");
+            }
+            self.run(cmd.arg(&package.name), ctx).await?;
         }
         Ok(())
     }

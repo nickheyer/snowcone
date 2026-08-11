@@ -1,14 +1,18 @@
 //! scratchpkg backend for snowcone.
 //!
-//! Venom Linux's `scratch` builds ports from source. Its listing output is
-//! not formally documented, so the parsers here strip ANSI colour codes
-//! and match on shape (a `repo/name` token anchors each search entry)
-//! rather than exact layout. Whether `scratch` escalates itself is
-//! undocumented too, so snowcone elevates mutations to be safe. No dry-run
-//! flag and no yes-flag are documented, so dry runs error and prompts stay
-//! interactive.
+//! Venom Linux's `scratch` builds ports from source. Its verbs and output
+//! come straight from the scratch script itself: `installed` lists
+//! `name version-release` lines, `info` prints `Key: Value` fields (with
+//! `Installed: -` for a port that is not installed), `search` prints
+//! `[*] (repo) name version-release: description` rows (`[ ]` when not
+//! installed), and `sync` runs portsync, the ports-tree refresh. The
+//! parsers still strip ANSI colour codes because the script colours its
+//! output. scratch checks for root (needroot) and exits rather than
+//! escalating itself, so snowcone elevates mutations - portsync included,
+//! since it refuses non-root too. No dry-run flag and no yes-flag exist,
+//! so dry runs error and prompts stay interactive.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use async_trait::async_trait;
 use snowcone_core::{
@@ -138,7 +142,7 @@ impl PackageManager for Manager {
     }
 
     fn capabilities(&self) -> Capabilities {
-        Capabilities::CORE | Capabilities::SEARCH | Capabilities::UPGRADE
+        Capabilities::CORE | Capabilities::SEARCH | Capabilities::REFRESH | Capabilities::UPGRADE
     }
 
     fn needs_elevation(&self, operation: Operation) -> bool {
@@ -177,27 +181,35 @@ impl PackageManager for Manager {
         Ok(boxed(self.installed_ports().await?))
     }
 
+    /// `scratch info` answers directly for any port in the tree; an
+    /// unknown port makes it print its not-found message and exit
+    /// non-zero.
     async fn info(&self, name: &str) -> Result<Box<dyn Package>> {
-        // No dedicated info verb is documented; the installed list answers
-        // for local ports and an exact search hit for the tree.
-        if let Some(package) = self
-            .installed_ports()
-            .await?
-            .into_iter()
-            .find(|package| package.name == name)
-        {
-            return Ok(Box::new(package));
+        let output = self
+            .query()
+            .arg("info")
+            .arg(name)
+            .capture(&self.elevator, None)
+            .await?;
+        if !output.success() {
+            return Err(Error::NotFound(name.to_string()));
         }
-        self.search_ports(name)
-            .await?
-            .into_iter()
-            .find(|package| package.name == name)
+        parse_info(&output.stdout)
             .map(|package| Box::new(package) as Box<dyn Package>)
             .ok_or_else(|| Error::NotFound(name.to_string()))
     }
 
     async fn search(&self, query: &str) -> Result<Vec<Box<dyn Package>>> {
         Ok(boxed(self.search_ports(query).await?))
+    }
+
+    /// `scratch sync` runs portsync, the ports-tree refresh; portsync
+    /// refuses non-root, so this elevates like every other mutation.
+    async fn refresh(&self, ctx: &OpContext) -> Result<()> {
+        if ctx.dry_run {
+            return Err(self.no_dry_run("refresh"));
+        }
+        self.run(self.cmd().arg("sync").elevated(true), ctx).await
     }
 
     async fn upgrade(&self, packages: &[PackageRequest], ctx: &OpContext) -> Result<()> {
@@ -270,48 +282,40 @@ fn parse_installed(stdout: &str) -> Vec<ScratchpkgPackage> {
         .collect()
 }
 
-/// `scratch search`: matched on shape rather than exact layout - a
-/// `repo/name` token anchors the entry, an adjacent digit-bearing token is
-/// the version, an `[installed]` marker sets the state, and the tail (any
-/// `-`/`:` separator stripped) is the description.
+/// `scratch search`: `[*] (repo) name version-release: description` rows,
+/// `[ ]` when the port is not installed (scratch_search's printf). The
+/// `(repo)` token anchors each entry; the version token carries the `:`
+/// separator, and everything after it is the description.
 fn parse_search(stdout: &str) -> Vec<ScratchpkgPackage> {
     stdout
         .lines()
         .filter_map(|raw| {
             let line = strip_ansi(raw);
             let tokens: Vec<&str> = line.split_whitespace().collect();
-            let anchor = tokens.iter().position(|token| token.contains('/'))?;
-            let (origin, name) = tokens[anchor].split_once('/')?;
-            if name.is_empty() || origin.is_empty() {
+            let anchor = tokens.iter().position(|token| {
+                token.len() > 2 && token.starts_with('(') && token.ends_with(')')
+            })?;
+            let origin = &tokens[anchor][1..tokens[anchor].len() - 1];
+            let name = tokens.get(anchor + 1)?;
+            if name.is_empty() {
                 return None;
             }
-            let mut rest = anchor + 1;
             let version = tokens
-                .get(rest)
+                .get(anchor + 2)
                 .map(|token| token.trim_end_matches(':'))
                 .filter(|candidate| {
                     !candidate.is_empty() && candidate.chars().any(|c| c.is_ascii_digit())
-                });
-            if version.is_some() {
-                rest += 1;
-            }
+                })?;
             let description = tokens
-                .get(rest..)
-                .map(|tail| {
-                    tail.iter()
-                        .copied()
-                        .filter(|token| *token != "[installed]")
-                        .collect::<Vec<_>>()
-                        .join(" ")
-                })
-                .map(|tail| tail.trim_start_matches(['-', ':']).trim_start().to_string())
+                .get(anchor + 3..)
+                .map(|tail| tail.join(" "))
                 .filter(|tail| !tail.is_empty());
             Some(ScratchpkgPackage {
-                name: name.to_string(),
-                version: version.map(str::to_string),
+                name: (*name).to_string(),
+                version: Some(version.to_string()),
                 description,
                 origin: Some(origin.to_string()),
-                state: if line.contains("[installed]") {
+                state: if line.trim_start().starts_with("[*]") {
                     InstallState::Installed
                 } else {
                     InstallState::Available
@@ -319,6 +323,56 @@ fn parse_search(stdout: &str) -> Vec<ScratchpkgPackage> {
             })
         })
         .collect()
+}
+
+/// `scratch info`: `Key: Value` fields straight from the script -
+/// `Version`/`Release` join into scratchpkg's `version-release` identity,
+/// `Path` names the port directory (its parent is the repository), and
+/// `Installed` carries the installed `version-release` or `-` when the
+/// port is not installed.
+fn parse_info(stdout: &str) -> Option<ScratchpkgPackage> {
+    let mut package = ScratchpkgPackage {
+        state: InstallState::Available,
+        ..Default::default()
+    };
+    let (mut version, mut release, mut installed) = (None, None, None);
+    for line in stdout.lines() {
+        let Some((key, value)) = strip_ansi(line)
+            .split_once(':')
+            .map(|(key, value)| (key.trim().to_string(), value.trim().to_string()))
+        else {
+            continue;
+        };
+        if value.is_empty() {
+            continue;
+        }
+        match key.as_str() {
+            "Name" => package.name = value,
+            "Path" => {
+                package.origin = Path::new(&value)
+                    .parent()
+                    .and_then(Path::file_name)
+                    .and_then(|repo| repo.to_str())
+                    .map(str::to_string);
+            }
+            "Version" => version = Some(value),
+            "Release" => release = Some(value),
+            "Description" => package.description = Some(value),
+            // `-` is the script printing empty version-release fields.
+            "Installed" if value != "-" => installed = Some(value),
+            _ => {}
+        }
+    }
+    package.version = match (version, release) {
+        (Some(version), Some(release)) => Some(format!("{version}-{release}")),
+        (version, None) => version,
+        (None, _) => None,
+    };
+    if let Some(installed) = installed {
+        package.state = InstallState::Installed;
+        package.version = Some(installed);
+    }
+    (!package.name.is_empty()).then_some(package)
 }
 
 /// A package as scratch describes it.
@@ -387,8 +441,8 @@ mod tests {
     #[test]
     fn parses_search_entries() {
         let stdout = "\
-core/zlib 1.3.1-1: compression library
-main/zlib-ng 2.1.6-1 - zlib for next generation systems
+[ ] (core) zlib 1.3.1-1: compression library
+[ ] (main) zlib-ng 2.1.6-1: zlib for next generation systems
 ";
         let packages = parse_search(stdout);
         assert_eq!(packages.len(), 2);
@@ -407,14 +461,54 @@ main/zlib-ng 2.1.6-1 - zlib for next generation systems
     }
 
     #[test]
-    fn search_marks_installed_entries() {
-        let packages = parse_search("core/zlib 1.3.1-1 [installed] compression library\n");
+    fn search_marks_installed_entries_and_strips_colour() {
+        // The `*` marker and repo name are coloured by the script.
+        let stdout = "[\u{1b}[0;32m*\u{1b}[0m] \u{1b}[0;35m(core)\u{1b}[0m zlib \u{1b}[0;36m1.3.1-1\u{1b}[0m: compression library\n";
+        let packages = parse_search(stdout);
         assert_eq!(packages.len(), 1);
+        assert_eq!(packages[0].name, "zlib");
         assert_eq!(packages[0].state, InstallState::Installed);
         assert_eq!(
             packages[0].description.as_deref(),
             Some("compression library")
         );
+    }
+
+    #[test]
+    fn parses_info_fields() {
+        let stdout = "\
+Name:         zlib
+Path:         /usr/ports/core/zlib
+Version:      1.3.1
+Release:      1
+Description:  compression library
+Maintainer:   emmett1, emmett1 dot 2miligrams at gmail dot com
+Homepage:     https://zlib.net
+Dependencies:
+Installed:    1.3.1-1
+";
+        let package = parse_info(stdout).unwrap();
+        assert_eq!(package.name, "zlib");
+        assert_eq!(package.origin.as_deref(), Some("core"));
+        assert_eq!(package.version.as_deref(), Some("1.3.1-1"));
+        assert_eq!(package.description.as_deref(), Some("compression library"));
+        assert_eq!(package.state, InstallState::Installed);
+    }
+
+    #[test]
+    fn info_dash_means_not_installed() {
+        let stdout = "\
+Name:         zlib-ng
+Path:         /usr/ports/main/zlib-ng
+Version:      2.1.6
+Release:      1
+Description:  zlib for next generation systems
+Installed:    -
+";
+        let package = parse_info(stdout).unwrap();
+        assert_eq!(package.version.as_deref(), Some("2.1.6-1"));
+        assert_eq!(package.state, InstallState::Available);
+        assert!(parse_info("port not found\n").is_none());
     }
 
     #[test]

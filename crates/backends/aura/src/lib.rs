@@ -3,9 +3,13 @@
 //! aura shares pacman's alpm database but, unlike the other AUR helpers, it
 //! separates repo operations (`-S`, passed through to pacman) from AUR
 //! operations (`-A`). Unified operations therefore classify each package
-//! first: a `-Si` hit means repo, anything else is treated as AUR. aura
-//! escalates through sudo on its own - snowcone never elevates it, because
-//! makepkg refuses to run as root.
+//! first: one batched `-Si` probe, repo for the names it answers, AUR for
+//! the names it reports as not found. aura escalates through sudo on its
+//! own - snowcone never elevates it, because makepkg refuses to run as
+//! root. refresh is a bare `-Sy` (the only refresh-only verb aura has),
+//! which leaves the sync databases newer than the installed set - the
+//! classic Arch partial-upgrade hazard - so a refresh should be followed
+//! by an upgrade, not by individual installs.
 
 use std::path::PathBuf;
 
@@ -82,25 +86,37 @@ impl Manager {
         Error::Other(format!("{ID}: {operation} has no reliable dry-run mode"))
     }
 
-    /// Split names into (repo, aur): a `-Si` hit means the sync repos know
-    /// the package, anything else is assumed to live in the AUR.
+    /// Split names into (repo, aur) with one batched `-Si` probe: `-Si`
+    /// takes several names, prints a block per name the sync repos know,
+    /// and complains `error: package 'x' was not found` per name they
+    /// don't. Only that complaint demotes a name to AUR - any other
+    /// failure (missing or locked sync databases, ...) is a real error,
+    /// not an everything-is-AUR answer.
     async fn classify<'a>(&self, names: &[&'a str]) -> Result<(Vec<&'a str>, Vec<&'a str>)> {
-        let mut repo = Vec::new();
-        let mut aur = Vec::new();
-        for &name in names {
-            let probe = self
-                .query()
-                .arg("-Si")
-                .arg(name)
-                .capture(&self.elevator, None)
-                .await?;
-            if probe.success() {
-                repo.push(name);
-            } else {
-                aur.push(name);
-            }
+        if names.is_empty() {
+            return Ok((Vec::new(), Vec::new()));
         }
-        Ok((repo, aur))
+        let probe = self
+            .query()
+            .arg("-Si")
+            .args(names.iter().copied())
+            .capture(&self.elevator, None)
+            .await?;
+        if !probe.success() && !probe.stderr.contains("was not found") {
+            return Err(Error::Other(format!(
+                "{ID}: `-Si` package classification failed: {}",
+                probe.stderr.trim()
+            )));
+        }
+        let known: Vec<&str> = probe
+            .stdout
+            .lines()
+            .filter_map(|line| {
+                let (key, value) = line.split_once(':')?;
+                (key.trim() == "Name").then(|| value.trim())
+            })
+            .collect();
+        Ok(names.iter().copied().partition(|name| known.contains(name)))
     }
 }
 
@@ -407,7 +423,12 @@ fn parse_info(stdout: &str, state: InstallState) -> Option<AuraPackage> {
             "Name" => package.name = value,
             "Version" => package.version = Some(value),
             "Description" => package.description = Some(value),
-            "URL" => package.homepage = Some(value),
+            // pacman's `-Qi`/`-Si` label the upstream page `URL`; aura's
+            // `-Ai` labels it `Project URL`.
+            "URL" | "Project URL" => package.homepage = Some(value),
+            // The package's AUR page - only a fallback for recipes whose
+            // `Project URL` is blank.
+            "AUR URL" if package.homepage.is_none() => package.homepage = Some(value),
             "Licenses" | "License" => package.license = Some(value),
             "Architecture" => package.architecture = Some(value),
             "Repository" => package.origin = Some(value),
@@ -513,17 +534,92 @@ aur/ripgrep-git 14.1.0.r13.g6f4212a-1 (+31 0.24)
     }
 
     #[test]
-    fn parses_info_fields() {
+    fn parses_aur_info_fields() {
+        // `aura -Ai python-grip` as printed in aura's own manual (The Aura
+        // Book, "Scrutinizing a Package"); blank-valued fields trimmed of
+        // trailing whitespace.
         let stdout = "\
-Repository      : aur
-Name            : ripgrep-git
-Version         : 14.1.0.r13.g6f4212a-1
-Description     : A search tool
-URL             : https://github.com/BurntSushi/ripgrep
+Repository    : aur
+Name          : python-grip
+Version       : 4.6.1-1
+AUR Status    : Up to Date
+Maintainer    : pancho
+Project URL   : https://github.com/joeyespo/grip
+AUR URL       : https://aur.archlinux.org/packages/python-grip
+License       : MIT
+Groups        :
+Provides      :
+Depends On    : python python-docopt python-flask python-markdown python-path-and-address python-pygments python-requests
+Make Deps     : python-setuptools
+Optional Deps :
+Check Deps    :
+Votes         : 22
+Popularity    : 0.00
+Description   : Preview GitHub Markdown files like Readme locally before committing them
+Keywords      :
+Submitted     : 2017-02-09
+Updated       : 2022-04-17
 ";
         let package = parse_info(stdout, InstallState::Available).unwrap();
-        assert_eq!(package.name, "ripgrep-git");
+        assert_eq!(package.name, "python-grip");
+        assert_eq!(package.version.as_deref(), Some("4.6.1-1"));
         assert_eq!(package.origin.as_deref(), Some("aur"));
+        // The homepage is the Project URL, not the AUR page.
+        assert_eq!(
+            package.homepage.as_deref(),
+            Some("https://github.com/joeyespo/grip")
+        );
+        assert_eq!(package.license.as_deref(), Some("MIT"));
+        assert_eq!(
+            package.dependencies.as_deref().map(<[String]>::len),
+            Some(7)
+        );
+        assert!(
+            package
+                .description
+                .unwrap()
+                .starts_with("Preview GitHub Markdown files")
+        );
+    }
+
+    #[test]
+    fn aur_url_backfills_a_blank_project_url() {
+        // The `-Ai` shape for a PKGBUILD with no `url` field: `Project
+        // URL` prints blank and only the AUR page remains.
+        let stdout = "\
+Repository    : aur
+Name          : example-git
+Version       : 1.0.0-1
+Project URL   :
+AUR URL       : https://aur.archlinux.org/packages/example-git
+";
+        let package = parse_info(stdout, InstallState::Available).unwrap();
+        assert_eq!(
+            package.homepage.as_deref(),
+            Some("https://aur.archlinux.org/packages/example-git")
+        );
+    }
+
+    #[test]
+    fn parses_pacman_info_fields() {
+        // The pacman-shaped `-Qi`/`-Si` side keeps its `URL` label
+        // (captured from `LC_ALL=C pacman -Si ripgrep`, fields elided).
+        let stdout = "\
+Repository      : extra
+Name            : ripgrep
+Version         : 15.2.0-1
+Description     : A search tool that combines the usability of ag with the raw speed of grep
+Architecture    : x86_64
+URL             : https://github.com/BurntSushi/ripgrep
+Licenses        : MIT OR Unlicense
+";
+        let package = parse_info(stdout, InstallState::Available).unwrap();
+        assert_eq!(package.name, "ripgrep");
+        assert_eq!(package.origin.as_deref(), Some("extra"));
+        assert_eq!(
+            package.homepage.as_deref(),
+            Some("https://github.com/BurntSushi/ripgrep")
+        );
     }
 
     #[test]

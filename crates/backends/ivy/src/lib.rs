@@ -88,7 +88,10 @@ impl PackageManager for Manager {
     }
 
     fn capabilities(&self) -> Capabilities {
-        Capabilities::CORE
+        // No INSTALL: retrieval runs through Ivy's Ant tasks inside a
+        // project build file, so the bit is dropped and the method
+        // explains why.
+        Capabilities::REMOVE | Capabilities::LIST_INSTALLED | Capabilities::INFO
     }
 
     async fn install(&self, _packages: &[PackageRequest], _ctx: &OpContext) -> Result<()> {

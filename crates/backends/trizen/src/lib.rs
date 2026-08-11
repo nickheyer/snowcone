@@ -259,7 +259,14 @@ fn parse_installed(stdout: &str) -> Vec<Box<dyn Package>> {
         .collect()
 }
 
-/// `-Ss`: `repo/name version [extras]` headers with indented descriptions.
+/// `-Ss` (`print_package_results` in trizen's Perl source): `repo/name
+/// version` headers, each followed by one four-space-indented description
+/// line (trizen folds descriptions to a single line). Repo entries append
+/// `[group]` plus pacman's `[installed]`/`[installed: version]` marker;
+/// AUR entries append bracketed decorations - `[votes+] [popularity%]`
+/// `[day month year]`, and possibly `[out-of-date]`/`[unmaintained]`.
+/// Colors are disabled whenever stdout is not a tty. (The numbered
+/// pick-list is bare `trizen <keyword>`, not `-Ss`.)
 fn parse_search(stdout: &str) -> Vec<Box<dyn Package>> {
     let mut packages: Vec<TrizenPackage> = Vec::new();
     for line in stdout.lines() {
@@ -285,6 +292,8 @@ fn parse_search(stdout: &str) -> Vec<Box<dyn Package>> {
             name: name.to_string(),
             version: parts.next().map(str::to_string),
             origin: Some(origin.to_string()),
+            // `[installed]` when current, `[installed: version]` when the
+            // AUR carries something newer - both start the same way.
             state: if line.contains("[installed") {
                 InstallState::Installed
             } else {
@@ -351,7 +360,9 @@ fn parse_info(stdout: &str, state: InstallState) -> Option<TrizenPackage> {
             "Version" => package.version = Some(value),
             "Description" => package.description = Some(value),
             "URL" => package.homepage = Some(value),
-            "Licenses" => package.license = Some(value),
+            // pacman passthrough prints `Licenses`; trizen's own AUR
+            // show_info prints `License` (verified in trizen source).
+            "Licenses" | "License" => package.license = Some(value),
             "Architecture" => package.architecture = Some(value),
             "Repository" => package.origin = Some(value),
             "Depends On" => {
@@ -439,26 +450,42 @@ mod tests {
 
     #[test]
     fn parses_search_headers_and_descriptions() {
+        // trizen is not runnable here; this fixture is trizen's
+        // `format_package_result` rendering (trizen/trizen master, colors
+        // off because stdout is piped) applied to real repo/AUR data
+        // captured on this machine. Decorations use trizen's defaults:
+        // votes, popularity and last-modified all on.
         let stdout = "\
-extra/ripgrep 14.1.0-1 [installed]
+extra/ripgrep 15.2.0-1 [installed]
     A search tool that combines the usability of ag with the raw speed of grep
-aur/ripgrep-git 14.1.0.r13.g6f4212a-1 (+31 0.24)
-    A search tool that combines the usability of ag with
-    the raw speed of grep
+core/bash 5.3.15-1 [base] [installed]
+    The GNU Bourne Again shell
+aur/ripgrep-git 15.1.0.r4.57c190d5-1 [13+] [0.03%] [24 Aug 2025]
+    A search tool that combines the usability of The Silver Searcher with the raw speed of grep.
+aur/ripgrep-all-git 0.10.10.462.g0f10fb9-1 [installed: 0.10.9-1] [2+] [0.00%] [2 Apr 2025]
+    rga: ripgrep, but also search in PDFs, E-Books, Office documents, zip, tar.gz, etc.
 ";
         let packages = parse_search(stdout);
-        assert_eq!(packages.len(), 2);
+        assert_eq!(packages.len(), 4);
         assert_eq!(packages[0].name(), "ripgrep");
         assert_eq!(packages[0].origin(), Some("extra"));
         assert_eq!(packages[0].state(), InstallState::Installed);
-        assert_eq!(packages[1].name(), "ripgrep-git");
-        assert_eq!(packages[1].state(), InstallState::Available);
+        // A `[base]` group between version and marker must not confuse it.
+        assert_eq!(packages[1].name(), "bash");
+        assert_eq!(packages[1].version(), Some("5.3.15-1"));
+        assert_eq!(packages[1].state(), InstallState::Installed);
+        assert_eq!(packages[2].name(), "ripgrep-git");
+        assert_eq!(packages[2].origin(), Some("aur"));
+        assert_eq!(packages[2].state(), InstallState::Available);
         assert!(
-            packages[1]
+            packages[2]
                 .description()
                 .unwrap()
-                .ends_with("speed of grep")
+                .ends_with("raw speed of grep.")
         );
+        // `[installed: version]` marks an installed-but-stale AUR package.
+        assert_eq!(packages[3].name(), "ripgrep-all-git");
+        assert_eq!(packages[3].state(), InstallState::Installed);
     }
 
     #[test]
@@ -488,9 +515,35 @@ Optional Deps   : None
         assert_eq!(package.version.as_deref(), Some("14.1.0-1"));
         assert!(package.description.unwrap().ends_with("raw speed of grep"));
         assert_eq!(package.dependencies, Some(vec!["gcc-libs".to_string()]));
+        assert_eq!(package.license.as_deref(), Some("MIT  UNLICENSE"));
         assert_eq!(
             package.homepage.as_deref(),
             Some("https://github.com/BurntSushi/ripgrep")
+        );
+    }
+
+    /// trizen's own AUR show_info rendering: `License` singular, `AUR URL`
+    /// alongside `URL` (labels verified in trizen's source).
+    #[test]
+    fn parses_aur_info_fields() {
+        let stdout = "\
+Repository      : aur
+Name            : trizen
+Version         : 1.68-1
+Maintainer      : trizen
+URL             : https://github.com/trizen/trizen
+AUR URL         : https://aur.archlinux.org/packages/trizen
+License         : GPL-3.0-or-later
+Depends On      : perl
+Description     : Lightweight AUR Package Manager
+";
+        let package = parse_info(stdout, InstallState::Available).unwrap();
+        assert_eq!(package.name, "trizen");
+        assert_eq!(package.license.as_deref(), Some("GPL-3.0-or-later"));
+        assert_eq!(package.origin.as_deref(), Some("aur"));
+        assert_eq!(
+            package.homepage.as_deref(),
+            Some("https://github.com/trizen/trizen")
         );
     }
 

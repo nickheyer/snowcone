@@ -6,7 +6,9 @@ use std::time::{Duration, Instant};
 
 use crossterm::event::{Event, KeyEventKind};
 use ratatui::DefaultTerminal;
-use snowcone_core::{HostInfo, InstallState, Operation, PackageSummary, Registry};
+use snowcone_core::{
+    ElevationSession, Elevator, HostInfo, InstallState, Operation, PackageSummary, Registry,
+};
 use tokio::sync::mpsc;
 
 use crate::commands::{ManagerStatus, manager_statuses};
@@ -15,7 +17,7 @@ use crate::config::Config;
 use super::event::InputReader;
 use super::fetch::{self, ListTarget};
 use super::keys::{self, Action, KeyCtx, ModeKind};
-use super::modal::{ConfirmState, Pending};
+use super::modal::{ConfirmState, PasswordState, Pending};
 use super::packages::{ListTab, LoadState, PkgKey, key_of};
 use super::policy::ExecMode;
 use super::pool::ManagerPool;
@@ -76,6 +78,7 @@ pub enum Mode {
     Normal,
     Input(InputTarget),
     Confirm(ConfirmState),
+    Password(PasswordState),
     Help,
 }
 
@@ -85,6 +88,7 @@ impl Mode {
             Mode::Normal => ModeKind::Normal,
             Mode::Input(_) => ModeKind::Input,
             Mode::Confirm(_) => ModeKind::Confirm,
+            Mode::Password(_) => ModeKind::Password,
             Mode::Help => ModeKind::Help,
         }
     }
@@ -139,6 +143,8 @@ pub enum TuiMsg {
         id: TaskId,
         result: Result<(), String>,
     },
+    /// Outcome of the password modal's `sudo -S -v` validation.
+    Elevation(Result<ElevationSession, String>),
     Log(String),
 }
 
@@ -177,11 +183,23 @@ pub async fn run(host: HostInfo, registry: Registry) -> anyhow::Result<()> {
 /// to report the failure and restore the TUI. A real handler (unlike
 /// SIG_IGN) resets to default across exec, so children keep normal
 /// Ctrl-C behavior.
+#[cfg(unix)]
 fn swallow_sigint() -> anyhow::Result<()> {
     let mut sigint = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())?;
     tokio::spawn(async move {
         loop {
             sigint.recv().await;
+        }
+    });
+    Ok(())
+}
+
+/// Same contract on Windows via the console Ctrl-C handler.
+#[cfg(not(unix))]
+fn swallow_sigint() -> anyhow::Result<()> {
+    tokio::spawn(async {
+        loop {
+            let _ = tokio::signal::ctrl_c().await;
         }
     });
     Ok(())
@@ -205,6 +223,10 @@ pub struct App {
 
     pub tasks: TaskRegistry,
     pending_plans: VecDeque<super::pool::MutationPlan>,
+    /// Warm sudo credentials from the password modal, held (and
+    /// background-refreshed) while the mutation batch runs. `None` when
+    /// nothing elevated is queued.
+    elevation: Option<ElevationSession>,
 
     pub info_cache: HashMap<PkgKey, InfoEntry>,
     info_order: VecDeque<PkgKey>,
@@ -254,6 +276,7 @@ impl App {
             tasks_view: TasksTab::new(),
             tasks: TaskRegistry::new(),
             pending_plans: VecDeque::new(),
+            elevation: None,
             info_cache: HashMap::new(),
             info_order: VecDeque::new(),
             detail_pending: None,
@@ -483,6 +506,34 @@ impl App {
             Action::ConfirmActivate => {
                 let yes = matches!(&self.mode, Mode::Confirm(state) if state.yes_selected);
                 self.confirm_resolve(yes, terminal, input).await;
+            }
+            Action::PasswordChar(c) => {
+                if let Mode::Password(state) = &mut self.mode
+                    && !state.validating
+                {
+                    state.input.push(c);
+                }
+            }
+            Action::PasswordBackspace => {
+                if let Mode::Password(state) = &mut self.mode
+                    && !state.validating
+                {
+                    state.input.pop();
+                }
+            }
+            Action::PasswordClear => {
+                if let Mode::Password(state) = &mut self.mode
+                    && !state.validating
+                {
+                    state.input.clear();
+                }
+            }
+            Action::PasswordSubmit => self.submit_password(),
+            Action::PasswordCancel => {
+                if matches!(self.mode, Mode::Password(_)) {
+                    self.mode = Mode::Normal;
+                    self.info("cancelled - nothing was run");
+                }
             }
             Action::HelpClose => self.mode = Mode::Normal,
             Action::Hint(text) => self.info(text),
@@ -908,8 +959,88 @@ impl App {
                     self.warn("a mutation is already running - wait for it (Tasks tab)");
                     return;
                 }
-                self.pending_plans.extend(plans);
-                self.dispatch_pending(terminal, input).await;
+                self.queue_mutations(plans, terminal, input).await;
+            }
+        }
+    }
+
+    /// Queue confirmed plans, collecting credentials first when any of
+    /// them needs elevation. sudo gets the in-TUI password modal
+    /// (validated via `Elevator::hold_with_password`, then kept warm for
+    /// the whole batch); helpers that own their prompting (doas, polkit)
+    /// skip the modal and the dispatcher suspends the TUI for their plans
+    /// instead.
+    async fn queue_mutations(
+        &mut self,
+        plans: Vec<super::pool::MutationPlan>,
+        terminal: &mut DefaultTerminal,
+        input: &InputReader,
+    ) {
+        let needs_credentials = !self.host.is_root
+            && self.elevation.is_none()
+            && plans.iter().any(|plan| plan.needs_elevation);
+        if needs_credentials {
+            let elevator = Elevator::detect(&self.host);
+            if matches!(elevator, Elevator::Unavailable) {
+                self.warn(
+                    "needs root, and no elevation helper (sudo, doas, run0, pkexec) was found",
+                );
+                return;
+            }
+            if elevator.accepts_password_on_stdin() {
+                self.mode = Mode::Password(PasswordState::new(plans));
+                return; // continues in finish_elevation on validation
+            }
+            // Per-invocation helpers prompt on the real terminal; the
+            // dispatcher suspends for their plans.
+        }
+        self.pending_plans.extend(plans);
+        self.dispatch_pending(terminal, input).await;
+    }
+
+    /// Spawn the `sudo -S -v` check for what the password modal holds.
+    /// Non-blocking: the outcome arrives as [`TuiMsg::Elevation`].
+    fn submit_password(&mut self) {
+        let Mode::Password(state) = &mut self.mode else {
+            return;
+        };
+        if state.validating || state.input.is_empty() {
+            return;
+        }
+        state.validating = true;
+        state.error = None;
+        let password = std::mem::take(&mut state.input);
+        let host = self.host.clone();
+        let tx = self.msg_tx.clone();
+        tokio::spawn(async move {
+            let result = Elevator::detect(&host).hold_with_password(&password).await;
+            let _ = tx.send(TuiMsg::Elevation(result.map_err(|error| error.to_string())));
+        });
+    }
+
+    /// Password validation reported: dispatch the held plans on success,
+    /// re-open the prompt with the error on failure. A session arriving
+    /// after the modal was cancelled is dropped - its refresher stops and
+    /// the timestamp ages out on sudo's own schedule.
+    fn finish_elevation(&mut self, result: Result<ElevationSession, String>) {
+        if !matches!(self.mode, Mode::Password(_)) {
+            return;
+        }
+        match result {
+            Ok(session) => {
+                let Mode::Password(state) = std::mem::replace(&mut self.mode, Mode::Normal) else {
+                    unreachable!("matched above");
+                };
+                self.elevation = Some(session);
+                self.pending_plans.extend(state.plans);
+                // dispatch_pending runs right after the message drain in
+                // main_loop.
+            }
+            Err(error) => {
+                if let Mode::Password(state) = &mut self.mode {
+                    state.validating = false;
+                    state.error = Some(error);
+                }
             }
         }
     }
@@ -922,9 +1053,22 @@ impl App {
             let Some(plan) = self.pending_plans.pop_front() else {
                 break;
             };
-            let id = self.begin_mutation_task(&plan);
+            // A captured elevated plan needs warm credentials (captured
+            // commands elevate with `sudo -n`). Without a held session -
+            // helper prompts per invocation, or the modal was bypassed -
+            // the real terminal is the only safe prompt surface.
+            let mode = if plan.mode == ExecMode::Captured
+                && plan.needs_elevation
+                && !self.host.is_root
+                && self.elevation.is_none()
+            {
+                ExecMode::Interactive
+            } else {
+                plan.mode
+            };
+            let id = self.begin_mutation_task(&plan, mode);
             self.tasks.active_mutation = Some(id);
-            match plan.mode {
+            match mode {
                 ExecMode::Captured => {
                     let handle = exec::spawn_captured(
                         plan,
@@ -951,15 +1095,21 @@ impl App {
                 }
             }
         }
+        if self.tasks.active_mutation.is_none() && self.pending_plans.is_empty() {
+            // Batch drained: stop refreshing the sudo timestamp. What
+            // remains ages out on sudo's own schedule, matching a manual
+            // sudo run.
+            self.elevation = None;
+        }
     }
 
-    fn begin_mutation_task(&mut self, plan: &super::pool::MutationPlan) -> TaskId {
+    fn begin_mutation_task(&mut self, plan: &super::pool::MutationPlan, mode: ExecMode) -> TaskId {
         let kind = TaskKind::from_operation(plan.operation);
         let id = self.tasks.begin(kind, plan.title.clone());
         if let Some(task) = self.tasks.get_mut(id) {
             task.manager = Some(plan.manager_id.clone());
             task.database = Some(plan.database);
-            task.mode = Some(plan.mode);
+            task.mode = Some(mode);
             task.names = plan
                 .requests
                 .iter()
@@ -1227,6 +1377,7 @@ impl App {
                 self.tasks.set_progress(id, current, total);
             }
             TuiMsg::TaskDone { id, result } => self.finish_task(id, result),
+            TuiMsg::Elevation(result) => self.finish_elevation(result),
             TuiMsg::Log(line) => self.push_log(line),
         }
     }

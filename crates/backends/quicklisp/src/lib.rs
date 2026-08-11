@@ -93,6 +93,7 @@ impl Manager {
         Cmd::new(&self.program)
             .args([
                 "--noinform",
+                "--no-sysinit",
                 "--no-userinit",
                 "--disable-debugger",
                 "--non-interactive",
@@ -163,9 +164,11 @@ fn reject_versions(packages: &[PackageRequest]) -> Result<()> {
     }
 }
 
+// `ql-dist:prefix` is the release accessor for the snapshot string (per
+// quicklisp-client's dist.lisp, where it is the release's `prefix` slot).
 fn record_form(system: &str, state: &str) -> String {
     format!(
-        r#"(format t "{RECORD}~C~A~C~A~C~A~C~A~%" #\Tab (ql-dist:name {system}) #\Tab (ql-dist:short-description (ql-dist:release {system})) #\Tab (ql-dist:project-name (ql-dist:release {system})) #\Tab {state})"#
+        r#"(format t "{RECORD}~C~A~C~A~C~A~%" #\Tab (ql-dist:name {system}) #\Tab (ql-dist:prefix (ql-dist:release {system})) #\Tab {state})"#
     )
 }
 
@@ -295,10 +298,6 @@ fn parse_records(stdout: &str) -> Vec<QuicklispPackage> {
                 let value = value.trim();
                 (!value.is_empty()).then(|| value.to_string())
             });
-            let description = fields.next().and_then(|value| {
-                let value = value.trim();
-                (!value.is_empty()).then(|| value.to_string())
-            });
             let state = match fields.next()?.trim() {
                 "installed" => InstallState::Installed,
                 "outdated" => InstallState::Upgradable,
@@ -307,7 +306,9 @@ fn parse_records(stdout: &str) -> Vec<QuicklispPackage> {
             Some(QuicklispPackage {
                 name,
                 version,
-                description,
+                // Quicklisp metadata carries no descriptions; none is
+                // invented from the project name.
+                description: None,
                 state,
             })
         })
@@ -376,10 +377,15 @@ mod tests {
 
     #[test]
     fn parses_only_tagged_records() {
-        let output = "Quicklisp setup loaded\nSNOWCONE\talexandria\talexandria-20250503-git\tAlexandria\tinstalled\nSNOWCONE\tbordeaux-threads\tbordeaux-threads-v0.8.8\tBordeaux Threads\tavailable\n";
+        let output = "Quicklisp setup loaded\nSNOWCONE\talexandria\talexandria-20250503-git\tinstalled\nSNOWCONE\tbordeaux-threads\tbordeaux-threads-v0.8.8\tavailable\n";
         let packages = parse_records(output);
         assert_eq!(packages.len(), 2);
         assert_eq!(packages[0].name, "alexandria");
+        assert_eq!(
+            packages[0].version.as_deref(),
+            Some("alexandria-20250503-git")
+        );
+        assert_eq!(packages[0].description, None);
         assert_eq!(packages[0].state, InstallState::Installed);
         assert_eq!(packages[1].state, InstallState::Available);
     }

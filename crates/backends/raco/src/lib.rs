@@ -61,7 +61,10 @@ impl Manager {
     }
     fn mutation(&self, verb: &str, ctx: &OpContext) -> Cmd {
         let mut c = self.cmd().arg(verb);
-        if ctx.assume_yes {
+        // On install/update `--auto` answers the dependency prompt; on
+        // remove it instead also deletes no-longer-needed auto-installed
+        // packages, which assume-yes must not opt into.
+        if ctx.assume_yes && matches!(verb, "install" | "update") {
             c = c.arg("--auto");
         }
         if ctx.dry_run {
@@ -178,15 +181,24 @@ fn boxed(v: Vec<RacoPackage>) -> Vec<Box<dyn Package>> {
         .map(|p| Box::new(p) as Box<dyn Package>)
         .collect()
 }
+/// `raco pkg show --all`: per-scope `Installation-wide:`/`User-specific:`
+/// headers, a `Package[*=auto]  Checksum  Source` column header (the
+/// `[*=auto]` suffix only when an auto-installed package appears, marked by
+/// a `*` glued to its name), ` [none]` for empty scopes, and a trailing
+/// `[N auto-installed packages not shown]` note outside `--all`.
 fn parse_show(s: &str) -> Vec<RacoPackage> {
     s.lines()
         .filter_map(|l| {
             let l = l.trim();
-            if l.is_empty() || l.ends_with(':') || l.starts_with("Package ") || l == "[none]" {
+            if l.is_empty() || l.ends_with(':') || l.starts_with('[') {
                 return None;
             }
             let mut f = l.split_whitespace();
             let name = f.next()?;
+            if name == "Package" || name.starts_with("Package[") {
+                return None;
+            }
+            let name = name.strip_suffix('*').unwrap_or(name);
             let checksum = f.next().filter(|v| *v != "#f").map(str::to_owned);
             Some(RacoPackage {
                 name: name.into(),
@@ -197,15 +209,20 @@ fn parse_show(s: &str) -> Vec<RacoPackage> {
         })
         .collect()
 }
+/// `raco pkg catalog-show`: a `Package name: <name>` header, then
+/// one-space-indented title-cased fields (` Author:`, ` Source:`,
+/// ` Checksum:`, ` Tags:`, ` Description:`, ` Ring:`) for whichever keys
+/// the catalog holds, then an optional ` Dependencies:` block.
 fn parse_catalog(s: &str) -> Option<RacoPackage> {
     let mut name = None;
     let mut checksum = None;
     let mut description = None;
     for l in s.lines() {
-        if let Some((k, v)) = l.split_once(':') {
+        if let Some(v) = l.strip_prefix("Package name:") {
+            name = Some(v.trim().to_owned());
+        } else if let Some((k, v)) = l.split_once(':') {
             match k.trim().to_ascii_lowercase().as_str() {
-                "name" => name = Some(v.trim().into()),
-                "checksum" => checksum = Some(v.trim().into()),
+                "checksum" => checksum = Some(v.trim()).filter(|v| *v != "#f").map(str::to_owned),
                 "description" => description = Some(v.trim().into()),
                 _ => {}
             }
@@ -224,16 +241,28 @@ mod tests {
     #[test]
     fn parses_scoped_show() {
         let p = parse_show(
-            "Installation-wide:\n Package Checksum Source\n racket-lib abc123 (catalog racket-lib)\nUser-specific:\n [none]\n",
+            "Installation-wide:\n Package[*=auto]      Checksum          Source\n base                 41ea15bc...       (catalog \"base\")\n racket-lib*          d6bf1a2c...       (catalog \"racket-lib\")\nUser-specific:\n [none]\n",
         );
-        assert_eq!(p.len(), 1);
-        assert_eq!(p[0].name, "racket-lib");
-        assert_eq!(p[0].version.as_deref(), Some("abc123"));
+        assert_eq!(p.len(), 2);
+        assert_eq!(p[0].name, "base");
+        assert_eq!(p[0].version.as_deref(), Some("41ea15bc..."));
+        assert_eq!(p[1].name, "racket-lib");
     }
     #[test]
     fn parses_catalog_fields() {
-        let p = parse_catalog("name: frog\nchecksum: deadbeef\ndescription: Frog tools\n").unwrap();
-        assert_eq!(p.description.as_deref(), Some("Frog tools"));
+        let p = parse_catalog(
+            "Package name: frog\n Author: greg@greghendershott.com\n Source: git://github.com/greghendershott/frog\n Checksum: c30fabd5ba9c15a40699a55b8fed575a4a1cb46f\n Tags: blog\n Description: Frog is a static web site generator written in Racket.\n Ring: 1\n Dependencies:\n  base\n",
+        )
+        .unwrap();
+        assert_eq!(p.name, "frog");
+        assert_eq!(
+            p.version.as_deref(),
+            Some("c30fabd5ba9c15a40699a55b8fed575a4a1cb46f")
+        );
+        assert_eq!(
+            p.description.as_deref(),
+            Some("Frog is a static web site generator written in Racket.")
+        );
     }
 }
 

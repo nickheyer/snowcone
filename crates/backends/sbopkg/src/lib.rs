@@ -1,14 +1,20 @@
 //! sbopkg backend for snowcone.
 //!
 //! sbopkg builds SlackBuilds.org packages from source and installs them.
-//! It has no remove verb at all - removal honestly delegates to pkgtools'
-//! `removepkg` (whose `-warn` is a native dry run); everything sbopkg
-//! installs is a regular Slackware package tagged `_SBo` in its build
-//! field, so the installed list and info come from the pkgtools database
-//! filtered to that tag. `-i` (build+install) has no simulate mode and is
-//! driven one package at a time; `-B` is the documented batch
-//! (non-interactive) switch; `-r` rsyncs the local repo copy. `-s` search
-//! output is parsed as its `category/name` match lines.
+//! The script refuses to run as anyone but root ("sbopkg must be run by
+//! the root user") before it even parses options, so every operation that
+//! invokes it - searches included - declares elevation; reads still run
+//! unelevated and surface sbopkg's own refusal. It has no remove verb at
+//! all - removal honestly delegates to pkgtools' `removepkg` (whose
+//! `-warn` is a native dry run); everything sbopkg installs is a regular
+//! Slackware package tagged `_SBo` in its build field, so the installed
+//! list and local info come from the pkgtools database filtered to that
+//! tag. `-i` (build+install) has no simulate mode and is driven one
+//! package at a time; `-B` is the documented batch (non-interactive)
+//! switch; `-r` rsyncs the local repo copy. `-g` is the CLI search, its
+//! matches printed as `category/name version` columns; `-s` is an
+//! interactive README browser with no parseable output, so it is never
+//! used.
 
 use std::path::{Path, PathBuf};
 
@@ -21,7 +27,10 @@ use snowcone_core::{
 
 const ID: &str = "sbopkg";
 const PROGRAMS: &[&str] = &["sbopkg"];
-const DATABASE_DIRS: [&str; 2] = ["/var/lib/pkgtools/packages", "/var/log/packages"];
+/// Slackware's package database is /var/log/packages, 15.0 included
+/// (/var/lib/pkgtools holds setup files and removed_packages, not the
+/// installed set); the pkgtools path stays as a defensive fallback only.
+const DATABASE_DIRS: [&str; 2] = ["/var/log/packages", "/var/lib/pkgtools/packages"];
 
 pub fn factory() -> Box<dyn BackendFactory> {
     Box::new(Factory)
@@ -115,10 +124,20 @@ impl PackageManager for Manager {
         Capabilities::CORE | Capabilities::SEARCH | Capabilities::REFRESH
     }
 
+    /// sbopkg exits immediately for non-root users, so anything that
+    /// invokes it prompts for credentials - the search, and the info
+    /// fallback for uninstalled builds, included. The installed list reads
+    /// the world-readable pkgtools database directly and stays free of
+    /// prompts; upgrade is not offered at all, so no prompt can appear for
+    /// it.
     fn needs_elevation(&self, operation: Operation) -> bool {
         matches!(
             operation,
-            Operation::Install | Operation::Remove | Operation::Upgrade | Operation::Refresh
+            Operation::Install
+                | Operation::Remove
+                | Operation::Refresh
+                | Operation::Search
+                | Operation::Info
         )
     }
 
@@ -168,11 +187,11 @@ impl PackageManager for Manager {
             package.installed_size = details.installed_size;
             return Ok(Box::new(package));
         }
-        // Not installed: the repo search at least confirms the build exists
-        // and names its category.
+        // Not installed: the repo search confirms the build exists and
+        // names its category and tree version.
         let output = self
             .query()
-            .arg("-s")
+            .arg("-g")
             .arg(name)
             .capture(&self.elevator, None)
             .await?;
@@ -186,7 +205,7 @@ impl PackageManager for Manager {
     async fn search(&self, query: &str) -> Result<Vec<Box<dyn Package>>> {
         let output = self
             .query()
-            .arg("-s")
+            .arg("-g")
             .arg(query)
             .capture(&self.elevator, None)
             .await?;
@@ -209,8 +228,8 @@ impl PackageManager for Manager {
     }
 }
 
-/// The installed-package database directory, preferring the modern
-/// location over the pre-15.0 one.
+/// The installed-package database directory: /var/log/packages wherever
+/// it exists, the pkgtools path only as a fallback.
 fn database_dir() -> &'static Path {
     DATABASE_DIRS
         .iter()
@@ -331,22 +350,28 @@ fn parse_size(text: &str) -> Option<u64> {
     Some((number * factor) as u64)
 }
 
-/// `-s`: matches print as bare `category/name` lines; narration lines
-/// contain whitespace and fall out.
+/// `-g`: below the `Searching for`/`Found the following matches`
+/// narration and the `NAME VERSION` header, matches print as
+/// `category/name version` columns (`column -t` output); the version
+/// column is empty when a build's .info file is missing. Only lines whose
+/// first field is a `category/name` token survive.
 fn parse_search(stdout: &str) -> Vec<SbopkgPackage> {
     stdout
         .lines()
         .filter_map(|line| {
-            let line = line.trim();
-            if line.is_empty() || line.contains(char::is_whitespace) {
-                return None;
-            }
-            let (category, name) = line.split_once('/')?;
+            let tokens: Vec<&str> = line.split_whitespace().collect();
+            let (token, version) = match tokens.as_slice() {
+                [token] => (*token, None),
+                [token, version] => (*token, Some((*version).to_string())),
+                _ => return None,
+            };
+            let (category, name) = token.split_once('/')?;
             if category.is_empty() || name.is_empty() || name.contains('/') {
                 return None;
             }
             Some(SbopkgPackage {
                 name: name.to_string(),
+                version,
                 origin: Some(category.to_string()),
                 state: InstallState::Available,
                 ..Default::default()
@@ -434,16 +459,19 @@ mod tests {
         let stdout = "\
 Searching for vlc
 Found the following matches for vlc:
-
-multimedia/vlc
-network/vlc-remote
+NAME            VERSION
+multimedia/vlc  3.0.20
 ";
         let packages = parse_search(stdout);
-        assert_eq!(packages.len(), 2);
+        assert_eq!(packages.len(), 1);
         assert_eq!(packages[0].name, "vlc");
         assert_eq!(packages[0].origin.as_deref(), Some("multimedia"));
+        assert_eq!(packages[0].version.as_deref(), Some("3.0.20"));
         assert_eq!(packages[0].state, InstallState::Available);
-        assert_eq!(packages[1].name, "vlc-remote");
+        // A build without an .info file prints its version column empty.
+        let bare = parse_search("multimedia/vlc\n");
+        assert_eq!(bare.len(), 1);
+        assert_eq!(bare[0].version, None);
     }
 
     #[test]

@@ -4,10 +4,12 @@
 //! means building it first, so install (and targeted upgrade) run `kiss b`
 //! then `kiss i`. kiss refuses to run as root and escalates itself through
 //! KISS_SU where needed, so snowcone never elevates it - `needs_elevation`
-//! stays true only so callers expect the credential prompt. `kiss u` pulls
-//! repositories and rebuilds what changed in one verb, which is what
-//! upgrade-all maps to. Prompts are silenced with kiss's own KISS_PROMPT=0
-//! when `assume_yes` is set; ports carry no description metadata at all.
+//! stays true only so callers expect the credential prompt. Repository
+//! pulls and system rebuilds are separate verbs (`kiss u`/`update` pulls,
+//! `kiss U`/`upgrade` rebuilds what changed - verified in kiss's argument
+//! dispatch), mapping to refresh and upgrade-all respectively. Prompts are
+//! silenced with kiss's own KISS_PROMPT=0 when `assume_yes` is set; ports
+//! carry no description metadata at all.
 
 use std::path::{Path, PathBuf};
 
@@ -128,12 +130,12 @@ impl PackageManager for Manager {
     }
 
     fn capabilities(&self) -> Capabilities {
-        Capabilities::CORE | Capabilities::SEARCH | Capabilities::UPGRADE
+        Capabilities::CORE | Capabilities::SEARCH | Capabilities::REFRESH | Capabilities::UPGRADE
     }
 
-    /// kiss drives its own escalation (KISS_SU) when installing or
-    /// removing - snowcone never elevates it, but a credential prompt is
-    /// still coming.
+    /// kiss drives its own escalation (KISS_SU) when it needs root -
+    /// snowcone never elevates it, but a credential prompt is still
+    /// coming.
     fn needs_elevation(&self, operation: Operation) -> bool {
         matches!(
             operation,
@@ -250,15 +252,24 @@ impl PackageManager for Manager {
         Ok(boxed(parse_search(&output.stdout)))
     }
 
+    /// `kiss u` pulls every configured repository - kiss's own
+    /// repository-refresh verb, split from the `U` system upgrade.
+    async fn refresh(&self, ctx: &OpContext) -> Result<()> {
+        if ctx.dry_run {
+            return Err(self.no_dry_run("refresh"));
+        }
+        self.run(self.mutation("u", ctx), ctx).await
+    }
+
     async fn upgrade(&self, packages: &[PackageRequest], ctx: &OpContext) -> Result<()> {
         reject_pins(packages)?;
         if ctx.dry_run {
             return Err(self.no_dry_run("upgrade"));
         }
         if packages.is_empty() {
-            // `kiss u` pulls every repository and rebuilds what changed -
-            // refresh and upgrade are one verb in kiss.
-            return self.run(self.mutation("u", ctx), ctx).await;
+            // `kiss U` rebuilds every port whose repository version moved -
+            // the system upgrade verb.
+            return self.run(self.mutation("U", ctx), ctx).await;
         }
         // No targeted upgrade verb exists; rebuilding the port is it.
         let names: Vec<&str> = packages
@@ -286,8 +297,9 @@ fn search_pattern(query: &str) -> String {
     }
 }
 
-/// `kiss l`: `name version release` per line, exactly as the port's
-/// `version` file spells it (the release counter is part of the version).
+/// `kiss l`: `name version-release` per line (kiss's pkg_list_version
+/// prints `$repo_name $repo_ver-$repo_rel`; the release counter is part
+/// of the version).
 fn parse_list(stdout: &str) -> Vec<KissPackage> {
     stdout
         .lines()
@@ -303,6 +315,21 @@ fn parse_list(stdout: &str) -> Vec<KissPackage> {
             })
         })
         .collect()
+}
+
+/// A port's `version` file holds `version release`; kiss joins the pair
+/// with a hyphen everywhere it prints one (`$repo_ver-$repo_rel` in
+/// pkg_list_version), so the same join keeps repository versions
+/// comparable with `kiss l` output.
+fn parse_version_file(contents: &str) -> Option<String> {
+    let mut fields = contents.split_whitespace();
+    let version = fields.next()?;
+    let release: Vec<&str> = fields.collect();
+    if release.is_empty() {
+        Some(version.to_string())
+    } else {
+        Some(format!("{version}-{}", release.join(" ")))
+    }
 }
 
 /// `kiss s`: absolute port-directory paths, one per line; the parent
@@ -331,13 +358,6 @@ fn parse_search(stdout: &str) -> Vec<KissPackage> {
             })
         })
         .collect()
-}
-
-/// A port's `version` file: `version release` on one line, whitespace
-/// normalized.
-fn parse_version_file(contents: &str) -> Option<String> {
-    let joined = contents.split_whitespace().collect::<Vec<_>>().join(" ");
-    (!joined.is_empty()).then_some(joined)
 }
 
 /// A package as kiss describes it.
@@ -382,10 +402,10 @@ mod tests {
 
     #[test]
     fn parses_installed_list() {
-        let packages = parse_list("zlib 1.3.1 1\nbusybox 1.36.1 1\n");
+        let packages = parse_list("zlib 1.3.1-1\nbusybox 1.36.1-1\n");
         assert_eq!(packages.len(), 2);
         assert_eq!(packages[0].name, "zlib");
-        assert_eq!(packages[0].version.as_deref(), Some("1.3.1 1"));
+        assert_eq!(packages[0].version.as_deref(), Some("1.3.1-1"));
         assert_eq!(packages[0].state, InstallState::Installed);
     }
 
@@ -407,8 +427,9 @@ mod tests {
     }
 
     #[test]
-    fn parses_version_files() {
-        assert_eq!(parse_version_file("1.3.1 1\n"), Some("1.3.1 1".to_string()));
+    fn version_file_joins_like_kiss_list_output() {
+        assert_eq!(parse_version_file("1.3.1 1\n"), Some("1.3.1-1".to_string()));
+        assert_eq!(parse_version_file("9999\n"), Some("9999".to_string()));
         assert_eq!(parse_version_file("  \n"), None);
     }
 

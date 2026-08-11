@@ -3,11 +3,13 @@
 //! PDM is a project manager, not a system package manager: `add`,
 //! `remove`, `list`, `update`, and `outdated` all operate on the
 //! pyproject.toml project in the *current working directory*, while
-//! `search` and `show` reach the remote index. That cwd-scoped contract is
-//! deliberate. pdm renders human output through rich, so the installed
-//! listing uses `--json` and the other reads run with NO_COLOR under
-//! LC_ALL=C (the outdated parser also strips rich's box drawing);
-//! `--dry-run` is native to add, remove, and update.
+//! `show` reaches the remote index. That cwd-scoped contract is
+//! deliberate. `pdm search` rode PyPI's XML-RPC search API, which is
+//! disabled, and is deprecated upstream, so SEARCH is not advertised. pdm
+//! renders human output through rich, so the installed listing uses
+//! `--json` and the other reads run with NO_COLOR under LC_ALL=C (the
+//! outdated parser also strips rich's box drawing); `--dry-run` is native
+//! to add, remove, and update.
 
 use std::path::PathBuf;
 
@@ -140,7 +142,6 @@ impl PackageManager for Manager {
 
     fn capabilities(&self) -> Capabilities {
         Capabilities::CORE
-            | Capabilities::SEARCH
             | Capabilities::UPGRADE
             | Capabilities::LIST_OUTDATED
             | Capabilities::PIN_VERSION
@@ -189,17 +190,6 @@ impl PackageManager for Manager {
             }
         }
         Ok(Box::new(package))
-    }
-
-    async fn search(&self, query: &str) -> Result<Vec<Box<dyn Package>>> {
-        let output = self
-            .query()
-            .arg("search")
-            .arg(query)
-            .capture(&self.elevator, None)
-            .await?
-            .require_success()?;
-        Ok(boxed(parse_search(&output.stdout)))
     }
 
     async fn upgrade(&self, packages: &[PackageRequest], ctx: &OpContext) -> Result<()> {
@@ -290,68 +280,13 @@ fn parse_show(stdout: &str) -> Option<PdmPackage> {
     (!package.name.is_empty()).then_some(package)
 }
 
-/// `pdm search`: pip-legacy `name (version) - description` header lines,
-/// with wrapped description continuations and `INSTALLED:`/`LATEST:`
-/// annotations indented below.
-fn parse_search(stdout: &str) -> Vec<PdmPackage> {
-    let mut packages: Vec<PdmPackage> = Vec::new();
-    for line in stdout.lines() {
-        if line.starts_with(char::is_whitespace) {
-            let text = line.trim();
-            let Some(last) = packages.last_mut() else {
-                continue;
-            };
-            if let Some(installed) = text.strip_prefix("INSTALLED:") {
-                let Some(installed) = installed.split_whitespace().next() else {
-                    continue;
-                };
-                // The header version is the newest on the index.
-                if last.version.as_deref() != Some(installed) {
-                    last.latest_version = last.version.take();
-                    last.state = InstallState::Upgradable;
-                } else {
-                    last.state = InstallState::Installed;
-                }
-                last.version = Some(installed.to_string());
-            } else if let Some(latest) = text.strip_prefix("LATEST:") {
-                last.latest_version = Some(latest.trim().to_string());
-                last.state = InstallState::Upgradable;
-            } else if !text.is_empty() {
-                match &mut last.description {
-                    Some(description) => {
-                        description.push(' ');
-                        description.push_str(text);
-                    }
-                    None => last.description = Some(text.to_string()),
-                }
-            }
-            continue;
-        }
-        let Some((name, rest)) = line.split_once(" (") else {
-            continue;
-        };
-        let Some((version, rest)) = rest.split_once(')') else {
-            continue;
-        };
-        let description = rest
-            .trim()
-            .strip_prefix('-')
-            .map(|description| description.trim().to_string())
-            .filter(|description| !description.is_empty());
-        packages.push(PdmPackage {
-            name: name.trim().to_string(),
-            version: Some(version.to_string()),
-            description,
-            state: InstallState::Available,
-            ..Default::default()
-        });
-    }
-    packages
-}
-
-/// `pdm outdated`: a name/current/latest table rendered by rich - cells
-/// may be separated by box-drawing `│` characters, ASCII pipes, or plain
-/// whitespace; header and border rows fail the version check.
+/// `pdm outdated`: a rich box table whose columns are Package | Installed
+/// | Pinned | Latest (pdm 2.19 inserted a Groups column after Package) -
+/// cells may be separated by box-drawing `│` characters, ASCII pipes, or
+/// plain whitespace. The version columns are always the last three, so
+/// rows anchor from the end; a row reduced to three cells (an empty
+/// Pinned cell drops out of the split) still parses. Header and border
+/// rows fail the version check.
 fn parse_outdated(stdout: &str) -> Vec<PdmPackage> {
     stdout
         .lines()
@@ -364,8 +299,10 @@ fn parse_outdated(stdout: &str) -> Vec<PdmPackage> {
             } else {
                 line.split_whitespace().collect()
             };
-            let [name, current, latest, ..] = cells[..] else {
-                return None;
+            let (name, current, latest) = match cells[..] {
+                [name, .., current, _pinned, latest] => (name, current, latest),
+                [name, current, latest] => (name, current, latest),
+                _ => return None,
             };
             if !current.starts_with(|c: char| c.is_ascii_digit())
                 || !latest.starts_with(|c: char| c.is_ascii_digit())
@@ -475,54 +412,54 @@ Homepage:              https://requests.readthedocs.io
     }
 
     #[test]
-    fn parses_search_output() {
+    fn parses_outdated_box_table() {
+        // pdm <= 2.15: Package | Installed | Pinned | Latest, rich ROUNDED
+        // box. The urllib3 row's empty Pinned cell drops to three cells.
         let stdout = "\
-requests (2.32.3)               - Python HTTP for Humans.
-requests-cache (1.2.1)          - A persistent cache for python
-                                  requests
-requests-oauthlib (2.0.0)       - OAuthlib authentication support
-  INSTALLED: 1.3.1
-  LATEST:    2.0.0
+╭──────────┬───────────┬────────┬────────╮
+│ Package  │ Installed │ Pinned │ Latest │
+├──────────┼───────────┼────────┼────────┤
+│ requests │ 2.31.0    │ 2.31.0 │ 2.32.3 │
+│ urllib3  │ 2.2.1     │        │ 2.2.2  │
+╰──────────┴───────────┴────────┴────────╯
 ";
-        let packages = parse_search(stdout);
-        assert_eq!(packages.len(), 3);
+        let packages = parse_outdated(stdout);
+        assert_eq!(packages.len(), 2);
         assert_eq!(packages[0].name, "requests");
-        assert_eq!(packages[0].state, InstallState::Available);
-        assert_eq!(
-            packages[1].description.as_deref(),
-            Some("A persistent cache for python requests")
-        );
-        assert_eq!(packages[2].version.as_deref(), Some("1.3.1"));
-        assert_eq!(packages[2].latest_version.as_deref(), Some("2.0.0"));
-        assert_eq!(packages[2].state, InstallState::Upgradable);
+        assert_eq!(packages[0].version.as_deref(), Some("2.31.0"));
+        assert_eq!(packages[0].latest_version.as_deref(), Some("2.32.3"));
+        assert_eq!(packages[0].state, InstallState::Upgradable);
+        assert_eq!(packages[1].name, "urllib3");
+        assert_eq!(packages[1].latest_version.as_deref(), Some("2.2.2"));
     }
 
     #[test]
-    fn parses_outdated_box_table() {
+    fn parses_outdated_box_table_with_groups() {
+        // pdm 2.19+ inserts a Groups column after Package.
         let stdout = "\
-┌──────────┬─────────┬────────┐
-│ Package  │ Current │ Latest │
-├──────────┼─────────┼────────┤
-│ requests │ 2.31.0  │ 2.32.3 │
-└──────────┴─────────┴────────┘
+╭──────────┬─────────┬───────────┬────────┬────────╮
+│ Package  │ Groups  │ Installed │ Pinned │ Latest │
+├──────────┼─────────┼───────────┼────────┼────────┤
+│ requests │ default │ 2.31.0    │ 2.31.0 │ 2.32.3 │
+╰──────────┴─────────┴───────────┴────────┴────────╯
 ";
         let packages = parse_outdated(stdout);
         assert_eq!(packages.len(), 1);
         assert_eq!(packages[0].name, "requests");
         assert_eq!(packages[0].version.as_deref(), Some("2.31.0"));
         assert_eq!(packages[0].latest_version.as_deref(), Some("2.32.3"));
-        assert_eq!(packages[0].state, InstallState::Upgradable);
     }
 
     #[test]
     fn parses_outdated_plain_table() {
         let stdout = "\
-Package  Current Latest
-requests 2.31.0  2.32.3
+Package  Installed Pinned Latest
+requests 2.31.0    2.31.0 2.32.3
 ";
         let packages = parse_outdated(stdout);
         assert_eq!(packages.len(), 1);
         assert_eq!(packages[0].name, "requests");
+        assert_eq!(packages[0].version.as_deref(), Some("2.31.0"));
         assert_eq!(packages[0].latest_version.as_deref(), Some("2.32.3"));
     }
 

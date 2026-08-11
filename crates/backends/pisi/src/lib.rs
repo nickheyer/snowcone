@@ -161,8 +161,12 @@ impl PackageManager for Manager {
             .query()
             .arg("list-installed")
             .capture(&self.elevator, None)
-            .await?
-            .require_success()?;
+            .await?;
+        // An errored run that printed nothing degrades to an empty listing
+        // (PiSi derivatives exit non-zero on empty results).
+        if !output.success() && output.stdout.trim().is_empty() {
+            return Ok(Vec::new());
+        }
         Ok(boxed(parse_listing(
             &output.stdout,
             InstallState::Installed,
@@ -190,8 +194,12 @@ impl PackageManager for Manager {
             .arg("search")
             .arg(query)
             .capture(&self.elevator, None)
-            .await?
-            .require_success()?;
+            .await?;
+        // No match with nothing printed is an empty result, not a failure
+        // (PiSi derivatives exit non-zero there).
+        if !output.success() && output.stdout.trim().is_empty() {
+            return Ok(Vec::new());
+        }
         Ok(boxed(parse_listing(
             &output.stdout,
             InstallState::Available,
@@ -219,8 +227,12 @@ impl PackageManager for Manager {
             .query()
             .arg("list-upgrades")
             .capture(&self.elevator, None)
-            .await?
-            .require_success()?;
+            .await?;
+        // Nothing to upgrade with nothing printed is an empty result, not
+        // a failure (PiSi derivatives exit non-zero there).
+        if !output.success() && output.stdout.trim().is_empty() {
+            return Ok(Vec::new());
+        }
         Ok(boxed(parse_listing(
             &output.stdout,
             InstallState::Upgradable,

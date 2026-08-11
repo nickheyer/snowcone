@@ -17,7 +17,8 @@ use std::path::PathBuf;
 use async_trait::async_trait;
 use snowcone_core::{
     BackendFactory, Capabilities, Cmd, Detection, Elevator, Error, HostInfo, InstallState,
-    ManagerKind, OpContext, Package, PackageManager, PackageRequest, Result, find_program,
+    ManagerKind, OpContext, Operation, Package, PackageManager, PackageRequest, Result,
+    find_program,
 };
 
 const ID: &str = "eepm";
@@ -132,6 +133,16 @@ impl PackageManager for Manager {
             | Capabilities::REFRESH
             | Capabilities::UPGRADE
             | Capabilities::LIST_OUTDATED
+    }
+
+    /// epm escalates itself through its internal sudo detection - snowcone
+    /// never prefixes an elevation helper, but a credential prompt is still
+    /// coming for every mutation.
+    fn needs_elevation(&self, operation: Operation) -> bool {
+        matches!(
+            operation,
+            Operation::Install | Operation::Remove | Operation::Upgrade | Operation::Refresh
+        )
     }
 
     async fn install(&self, packages: &[PackageRequest], ctx: &OpContext) -> Result<()> {

@@ -10,7 +10,9 @@
 //! image-level entry from `upgrade --check` (exit 77 means already
 //! current). rpm-ostree never prompts, so `assume_yes` has nothing to do.
 //! `info` reads the booted deployment's rpmdb through the host `rpm`
-//! binary, which is always present on ostree systems.
+//! binary, which is always present on ostree systems. `search` asks the
+//! daemon to query the enabled repos, printing `===== … Matched =====`
+//! sections of `name : summary` lines.
 
 use std::path::PathBuf;
 
@@ -140,6 +142,7 @@ impl PackageManager for Manager {
 
     fn capabilities(&self) -> Capabilities {
         Capabilities::CORE
+            | Capabilities::SEARCH
             | Capabilities::REFRESH
             | Capabilities::UPGRADE
             | Capabilities::LIST_OUTDATED
@@ -197,6 +200,20 @@ impl PackageManager for Manager {
         Ok(Box::new(package))
     }
 
+    async fn search(&self, query: &str) -> Result<Vec<Box<dyn Package>>> {
+        let output = self
+            .query()
+            .arg("search")
+            .arg(query)
+            .capture(&self.elevator, None)
+            .await?
+            .require_success()?;
+        Ok(parse_search(&output.stdout)
+            .into_iter()
+            .map(|package| Box::new(package) as Box<dyn Package>)
+            .collect())
+    }
+
     async fn refresh(&self, ctx: &OpContext) -> Result<()> {
         if ctx.dry_run {
             return Err(Error::Other(format!("{ID}: refresh has no dry-run mode")));
@@ -231,7 +248,11 @@ impl PackageManager for Manager {
             return Ok(Vec::new());
         }
         let check = check.require_success()?;
-        let latest = parse_check(&check.stdout);
+        // `--check` can also exit 0 with no AvailableUpdate block; that is
+        // "nothing pending", not an upgradable image with no version.
+        let Some(latest) = parse_check(&check.stdout) else {
+            return Ok(Vec::new());
+        };
         // The base image is the upgrade unit; one entry stands in for it,
         // named after the booted deployment's os.
         let status = self.status().await?;
@@ -244,7 +265,7 @@ impl PackageManager for Manager {
             version: booted
                 .and_then(|deployment| deployment["version"].as_str())
                 .map(str::to_string),
-            latest_version: latest,
+            latest_version: Some(latest),
             state: InstallState::Upgradable,
             ..Default::default()
         })])
@@ -307,6 +328,34 @@ fn parse_check(stdout: &str) -> Option<String> {
         }
     }
     None
+}
+
+/// `rpm-ostree search`: `===== Name Matched =====`-style section headers
+/// (`Summary & Name` / `Name` / `Summary`, per src/app/
+/// rpmostree-pkg-builtins.cxx) over `name : summary` lines; a no-match run
+/// exits 0 printing only `No matches found.`. Anything without the
+/// ` : ` shape is skipped defensively.
+fn parse_search(stdout: &str) -> Vec<RpmOstreePackage> {
+    stdout
+        .lines()
+        .filter_map(|line| {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with("=====") {
+                return None;
+            }
+            let (name, summary) = line.split_once(':')?;
+            let (name, summary) = (name.trim(), summary.trim());
+            if name.is_empty() || name.contains(char::is_whitespace) {
+                return None;
+            }
+            Some(RpmOstreePackage {
+                name: name.to_string(),
+                description: (!summary.is_empty()).then(|| summary.to_string()),
+                state: InstallState::Available,
+                ..Default::default()
+            })
+        })
+        .collect()
 }
 
 /// `rpm -qi`: `Key : Value` fields with a multi-line description at the
@@ -447,6 +496,33 @@ AvailableUpdate:
     #[test]
     fn no_update_block_parses_to_none() {
         assert_eq!(parse_check("No updates available.\n"), None);
+    }
+
+    #[test]
+    fn parses_search_sections() {
+        // Header and row shapes from rpm-ostree's own test suite
+        // (tests/kolainst/nondestructive/misc.sh).
+        let stdout = "
+===== Summary & Name Matched =====
+testdaemon : awesome-daemon-for-testing
+
+===== Name Matched =====
+testpkg : a-test-package
+";
+        let packages = parse_search(stdout);
+        assert_eq!(packages.len(), 2);
+        assert_eq!(packages[0].name, "testdaemon");
+        assert_eq!(
+            packages[0].description.as_deref(),
+            Some("awesome-daemon-for-testing")
+        );
+        assert_eq!(packages[0].state, InstallState::Available);
+        assert_eq!(packages[1].name, "testpkg");
+    }
+
+    #[test]
+    fn no_search_matches_parse_to_nothing() {
+        assert!(parse_search("No matches found.\n").is_empty());
     }
 
     #[test]

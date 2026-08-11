@@ -121,7 +121,10 @@ impl PackageManager for Manager {
     }
 
     fn capabilities(&self) -> Capabilities {
-        Capabilities::CORE | Capabilities::SEARCH | Capabilities::UPGRADE
+        Capabilities::CORE
+            | Capabilities::SEARCH
+            | Capabilities::UPGRADE
+            | Capabilities::LIST_OUTDATED
     }
 
     async fn install(&self, packages: &[PackageRequest], ctx: &OpContext) -> Result<()> {
@@ -209,6 +212,22 @@ impl PackageManager for Manager {
         };
         self.run(cmd, ctx).await
     }
+
+    async fn list_outdated(&self) -> Result<Vec<Box<dyn Package>>> {
+        // hex.outdated deliberately exits 1 whenever anything is outdated,
+        // so the exit code alone cannot gate parsing; a failure with no
+        // table rows is a genuine error.
+        let output = self
+            .query()
+            .arg("hex.outdated")
+            .capture(&self.elevator, None)
+            .await?;
+        let packages = parse_hex_outdated(&output.stdout);
+        if packages.is_empty() && !output.success() {
+            output.require_success()?;
+        }
+        Ok(boxed(packages))
+    }
 }
 
 fn parse_deps(stdout: &str) -> Vec<MixPackage> {
@@ -228,6 +247,7 @@ fn parse_deps(stdout: &str) -> Vec<MixPackage> {
             current = Some(MixPackage {
                 name: name.to_string(),
                 version,
+                latest_version: None,
                 description: None,
                 state: InstallState::Installed,
             });
@@ -290,10 +310,49 @@ fn parse_hex_search(stdout: &str) -> Vec<MixPackage> {
             Some(MixPackage {
                 name: columns.get(name_index)?.to_string(),
                 version: columns.get(version_index).map(|value| value.to_string()),
+                latest_version: None,
                 description: columns
                     .get(description_index)
                     .map(|value| value.to_string()),
                 state: InstallState::Available,
+            })
+        })
+        .collect()
+}
+
+/// `mix hex.outdated`: a `Dependency  Only  Current  Latest  Status` table
+/// (the Only column is blank for most deps, so rows are matched on the two
+/// adjacent version-shaped columns rather than on position) followed by
+/// `Run \`mix hex.outdated APP\`...` hint lines. Statuses are `Up-to-date`,
+/// `Update possible`, and `Update not possible`; anything whose versions
+/// differ has a newer release.
+fn parse_hex_outdated(stdout: &str) -> Vec<MixPackage> {
+    stdout
+        .lines()
+        .filter_map(|line| {
+            let mut tokens = line.split_whitespace();
+            let name = tokens.next()?;
+            if name.starts_with(|character: char| !character.is_ascii_lowercase()) {
+                return None;
+            }
+            let rest: Vec<&str> = tokens.collect();
+            let starts_versionish = |value: &str| {
+                value
+                    .chars()
+                    .next()
+                    .is_some_and(|character| character.is_ascii_digit())
+            };
+            let index = rest.iter().position(|value| starts_versionish(value))?;
+            let current = *rest.get(index)?;
+            let latest = *rest
+                .get(index + 1)
+                .filter(|value| starts_versionish(value))?;
+            (current != latest).then(|| MixPackage {
+                name: name.to_string(),
+                version: Some(current.to_string()),
+                latest_version: Some(latest.to_string()),
+                description: None,
+                state: InstallState::Upgradable,
             })
         })
         .collect()
@@ -330,6 +389,7 @@ fn parse_hex_info(stdout: &str, fallback: &str) -> Option<MixPackage> {
     (!description.is_empty() || version.is_some()).then(|| MixPackage {
         name: fallback.into(),
         version,
+        latest_version: None,
         description: (!description.is_empty()).then_some(description),
         state: InstallState::Available,
     })
@@ -347,6 +407,7 @@ fn boxed(packages: Vec<MixPackage>) -> Vec<Box<dyn Package>> {
 pub struct MixPackage {
     pub name: String,
     pub version: Option<String>,
+    pub latest_version: Option<String>,
     pub description: Option<String>,
     pub state: InstallState,
 }
@@ -362,6 +423,10 @@ impl Package for MixPackage {
 
     fn version(&self) -> Option<&str> {
         self.version.as_deref()
+    }
+
+    fn latest_version(&self) -> Option<&str> {
+        self.latest_version.as_deref()
     }
 
     fn description(&self) -> Option<&str> {
@@ -406,6 +471,18 @@ mod tests {
             package.description.as_deref(),
             Some("Composable modules for web applications")
         );
+    }
+
+    #[test]
+    fn parses_hex_outdated_tables() {
+        let output = "Dependency  Only  Current  Latest  Status\nex_doc      :dev  0.19.0   0.19.1  Update possible\nphoenix           1.7.10   1.7.10  Up-to-date\nplug              1.15.0   1.16.1  Update not possible\n\nRun `mix hex.outdated APP` to see requirements for a specific dependency.\n";
+        let packages = parse_hex_outdated(output);
+        assert_eq!(packages.len(), 2);
+        assert_eq!(packages[0].name, "ex_doc");
+        assert_eq!(packages[0].version.as_deref(), Some("0.19.0"));
+        assert_eq!(packages[0].latest_version.as_deref(), Some("0.19.1"));
+        assert_eq!(packages[0].state, InstallState::Upgradable);
+        assert_eq!(packages[1].name, "plug");
     }
 
     #[test]

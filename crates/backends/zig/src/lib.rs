@@ -6,15 +6,15 @@
 //! concern snowcone stays out of. There is no registry to resolve names
 //! against, no verb to list the cache, and no verb to remove one entry
 //! from it. Install therefore treats each request as a fetchable URL or
-//! path, and the other core operations return clear errors describing
-//! zig's model rather than faking behavior on top of the cache.
+//! path, and only INSTALL is advertised - remove, list-installed, and
+//! info have nothing real to drive on top of an opaque cache.
 
 use std::path::PathBuf;
 
 use async_trait::async_trait;
 use snowcone_core::{
     BackendFactory, Capabilities, Cmd, Detection, Elevator, Error, HostInfo, ManagerKind,
-    OpContext, Package, PackageManager, PackageRequest, Result, find_program,
+    OpContext, Operation, Package, PackageManager, PackageRequest, Result, find_program,
 };
 
 const ID: &str = "zig";
@@ -72,15 +72,6 @@ impl Manager {
         output.require_success()?;
         Ok(())
     }
-
-    /// The global cache is content-addressed hashes with no CLI verbs to
-    /// inspect or edit it - these operations have nothing real to drive.
-    fn cache_is_opaque(&self, operation: &str) -> Error {
-        Error::Other(format!(
-            "{ID}: {operation} is not possible - zig's global package cache is \
-             content-addressed and the CLI has no verb to list or remove entries"
-        ))
-    }
 }
 
 /// `zig fetch` takes URLs and paths, not registry names - there is no
@@ -113,8 +104,11 @@ impl PackageManager for Manager {
         "zig"
     }
 
+    /// Only INSTALL: the global cache is content-addressed hashes with no
+    /// CLI verbs to inspect or edit it, so remove, list-installed, and
+    /// info have nothing real to drive.
     fn capabilities(&self) -> Capabilities {
-        Capabilities::CORE
+        Capabilities::INSTALL
     }
 
     async fn install(&self, packages: &[PackageRequest], ctx: &OpContext) -> Result<()> {
@@ -130,15 +124,15 @@ impl PackageManager for Manager {
     }
 
     async fn remove(&self, _packages: &[PackageRequest], _ctx: &OpContext) -> Result<()> {
-        Err(self.cache_is_opaque("remove"))
+        Err(self.unsupported(Operation::Remove))
     }
 
     async fn list_installed(&self) -> Result<Vec<Box<dyn Package>>> {
-        Err(self.cache_is_opaque("list-installed"))
+        Err(self.unsupported(Operation::ListInstalled))
     }
 
     async fn info(&self, _name: &str) -> Result<Box<dyn Package>> {
-        Err(self.cache_is_opaque("info"))
+        Err(self.unsupported(Operation::Info))
     }
 }
 

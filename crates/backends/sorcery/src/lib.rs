@@ -2,10 +2,12 @@
 //!
 //! Source Mage spreads its interface across four commands: `cast` builds
 //! and installs spells, `dispel` removes them, `gaze` answers every query,
-//! and `sorcery` runs the whole-system update. Every install is a source
-//! build that runs as root and asks its questions on the terminal - there
-//! is no yes-flag and no dry-run anywhere, so `assume_yes` has nothing to
-//! do and `--dry-run` errors instead of pretending.
+//! and `sorcery` runs the whole-system update; `scribe update` (resolved
+//! only when refresh runs, since scribe ships in the same sorcery package)
+//! refreshes the installed grimoires. Every install is a source build that
+//! runs as root and asks its questions on the terminal - there is no
+//! yes-flag and no dry-run anywhere, so `assume_yes` has nothing to do and
+//! `--dry-run` errors instead of pretending.
 
 use std::path::{Path, PathBuf};
 
@@ -17,7 +19,9 @@ use snowcone_core::{
 };
 
 const ID: &str = "sorcery";
-const PROGRAMS: &[&str] = &["cast"];
+/// Everything `create` resolves; detection probes the same set so an
+/// incomplete installation is reported up front instead of failing later.
+const PROGRAMS: &[&str] = &["cast", "dispel", "gaze", "sorcery"];
 
 pub fn factory() -> Box<dyn BackendFactory> {
     Box::new(Factory)
@@ -31,7 +35,22 @@ impl BackendFactory for Factory {
     }
 
     fn detect(&self, _host: &HostInfo) -> Detection {
-        match PROGRAMS.iter().find_map(|program| find_program(program)) {
+        // All four commands are required by `create`; a partial suite is
+        // unavailable, not available-and-broken.
+        let mut first = None;
+        for program in PROGRAMS {
+            match find_program(program) {
+                Some(path) => {
+                    first.get_or_insert(path);
+                }
+                None => {
+                    return Detection::Unavailable {
+                        reason: format!("`{program}` not found on PATH"),
+                    };
+                }
+            }
+        }
+        match first {
             Some(program) => Detection::Available { program },
             None => Detection::Unavailable {
                 reason: format!("`{}` not found on PATH", PROGRAMS[0]),
@@ -128,7 +147,7 @@ impl PackageManager for Manager {
     }
 
     fn capabilities(&self) -> Capabilities {
-        Capabilities::CORE | Capabilities::SEARCH | Capabilities::UPGRADE
+        Capabilities::CORE | Capabilities::SEARCH | Capabilities::REFRESH | Capabilities::UPGRADE
     }
 
     fn needs_elevation(&self, operation: Operation) -> bool {
@@ -206,6 +225,24 @@ impl PackageManager for Manager {
             return Ok(Vec::new());
         }
         Ok(boxed(parse_search(&output.stdout)))
+    }
+
+    /// `scribe update` refreshes every installed grimoire. scribe ships in
+    /// the sorcery package but is not part of the four commands `create`
+    /// requires, so it resolves here, with an honest error when missing;
+    /// run elevated because scribe otherwise re-runs itself under `su`
+    /// with its own password prompt.
+    async fn refresh(&self, ctx: &OpContext) -> Result<()> {
+        if ctx.dry_run {
+            return Err(self.no_dry_run("refresh"));
+        }
+        let scribe = find_program("scribe").ok_or_else(|| {
+            Error::Other(format!(
+                "{ID}: grimoire refresh runs `scribe update`, but `scribe` was not found on PATH"
+            ))
+        })?;
+        let cmd = self.cmd(&scribe).arg("update").elevated(true);
+        self.run(cmd, ctx).await
     }
 
     async fn upgrade(&self, packages: &[PackageRequest], ctx: &OpContext) -> Result<()> {

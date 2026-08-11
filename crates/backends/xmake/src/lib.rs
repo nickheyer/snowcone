@@ -1,6 +1,9 @@
 //! xmake / xrepo backend for snowcone.
 //!
 //! Supports standalone xrepo and xmake's equivalent `require` frontend.
+//! Installed packages are enumerated with `xrepo scan` / `xmake require
+//! --scan` (there is no `list` action; `require --list` shows a project's
+//! declared dependencies, not what is installed).
 
 use std::path::PathBuf;
 
@@ -54,8 +57,12 @@ struct Manager {
 }
 
 impl Manager {
+    /// `XMAKE_COLORTERM=nocolor` is xmake's own switch for disabling the
+    /// `${color}` markup its cprint output otherwise carries.
     fn raw(&self) -> Cmd {
-        Cmd::new(&self.program).env("LC_ALL", "C")
+        Cmd::new(&self.program)
+            .env("LC_ALL", "C")
+            .env("XMAKE_COLORTERM", "nocolor")
     }
 
     fn cmd(&self) -> Cmd {
@@ -92,6 +99,21 @@ impl Manager {
             self.cmd().arg(xmake_flag)
         }
     }
+
+    /// The installed-package enumerator: `xrepo scan [packages]` (or
+    /// `xmake require --scan`), which walks the package install directory.
+    async fn scan(&self, package: Option<&str>) -> Result<Vec<XmakePackage>> {
+        let mut cmd = if self.xrepo {
+            self.cmd().arg("scan")
+        } else {
+            self.cmd().arg("--scan")
+        };
+        if let Some(package) = package {
+            cmd = cmd.arg(package);
+        }
+        let out = cmd.capture(&self.elevator, None).await?.require_success()?;
+        Ok(parse_scan(&out.stdout))
+    }
 }
 
 fn spec(request: &PackageRequest) -> String {
@@ -127,14 +149,16 @@ impl PackageManager for Manager {
             | Capabilities::PIN_VERSION
     }
 
+    /// Install is xrepo's `install` action; `xmake require` installs by
+    /// default (it has no `--install` flag).
     async fn install(&self, _packages: &[PackageRequest], _ctx: &OpContext) -> Result<()> {
         self.no_dry_run(_ctx, "install")?;
-        self.run(
-            self.action("install", "--install")
-                .args(_packages.iter().map(spec)),
-            _ctx,
-        )
-        .await
+        let cmd = if self.xrepo {
+            self.cmd().arg("install")
+        } else {
+            self.cmd()
+        };
+        self.run(cmd.args(_packages.iter().map(spec)), _ctx).await
     }
 
     async fn remove(&self, _packages: &[PackageRequest], _ctx: &OpContext) -> Result<()> {
@@ -148,12 +172,7 @@ impl PackageManager for Manager {
     }
 
     async fn list_installed(&self) -> Result<Vec<Box<dyn Package>>> {
-        let out = self
-            .action("list", "--list")
-            .capture(&self.elevator, None)
-            .await?
-            .require_success()?;
-        Ok(boxed(parse_list(&out.stdout)))
+        Ok(boxed(self.scan(None).await?))
     }
 
     async fn info(&self, name: &str) -> Result<Box<dyn Package>> {
@@ -166,16 +185,11 @@ impl PackageManager for Manager {
             return Err(Error::NotFound(name.into()));
         }
         let mut package = parse_info(&out.stdout, name);
-        if parse_list(
-            &self
-                .action("list", "--list")
-                .capture(&self.elevator, None)
-                .await?
-                .require_success()?
-                .stdout,
-        )
-        .into_iter()
-        .any(|installed| installed.name == name)
+        if self
+            .scan(Some(name))
+            .await?
+            .into_iter()
+            .any(|installed| installed.name == name)
         {
             package.state = InstallState::Installed;
         }
@@ -202,28 +216,24 @@ impl PackageManager for Manager {
         self.run(cmd, ctx).await
     }
 
+    /// `xmake require --upgrade` is the real upgrade switch (it bypasses
+    /// the requires lock so newer versions resolve). xrepo has no upgrade
+    /// action: reinstalling a named package resolves the latest version,
+    /// which is the genuine per-package upgrade path, but there is no verb
+    /// covering the whole installed set.
     async fn upgrade(&self, _packages: &[PackageRequest], _ctx: &OpContext) -> Result<()> {
         self.no_dry_run(_ctx, "upgrade")?;
-        let specs: Vec<String> = if _packages.is_empty() {
-            parse_list(
-                &self
-                    .action("list", "--list")
-                    .capture(&self.elevator, None)
-                    .await?
-                    .require_success()?
-                    .stdout,
-            )
-            .into_iter()
-            .map(|package| package.name)
-            .collect()
+        let cmd = if self.xrepo {
+            if _packages.is_empty() {
+                return Err(Error::Other(format!(
+                    "{ID}: xrepo has no upgrade-all verb; name the packages to upgrade"
+                )));
+            }
+            self.cmd().arg("install")
         } else {
-            _packages.iter().map(spec).collect()
+            self.cmd().arg("--upgrade")
         };
-        let cmd = self
-            .action("install", "--install")
-            .arg("--force")
-            .args(specs);
-        self.run(cmd, _ctx).await
+        self.run(cmd.args(_packages.iter().map(spec)), _ctx).await
     }
 }
 
@@ -241,19 +251,40 @@ fn split_spec(value: &str) -> (String, Option<String>) {
     (name, version)
 }
 
-fn parse_list(stdout: &str) -> Vec<XmakePackage> {
+/// `name-version` scan headers: the version directory starts at the first
+/// dash followed by a digit (`c-ares-1.34.5` → `c-ares` + `1.34.5`); a
+/// branch version like `tbox-master` splits at the last dash instead.
+fn split_scan_header(value: &str) -> (String, Option<String>) {
+    for (idx, _) in value.match_indices('-') {
+        if value[idx + 1..]
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_ascii_digit())
+        {
+            return (value[..idx].to_owned(), Some(value[idx + 1..].to_owned()));
+        }
+    }
+    match value.rsplit_once('-') {
+        Some((name, version)) => (name.to_owned(), Some(version.to_owned())),
+        None => (value.to_owned(), None),
+    }
+}
+
+/// `xrepo scan`: a `name-version:` header per installed package version
+/// (unindented), each followed by indented `-> <hash>: <plat>, <arch>` and
+/// config detail lines; a `scanning packages ..` trace line leads.
+fn parse_scan(stdout: &str) -> Vec<XmakePackage> {
     stdout
         .lines()
         .filter_map(|line| {
-            let line = line.trim().trim_start_matches("->").trim();
-            if line.is_empty()
-                || line.ends_with(':')
-                || line.starts_with("packages(")
-                || line.starts_with("The packages")
-            {
+            if line.starts_with(char::is_whitespace) {
                 return None;
             }
-            let (name, version) = split_spec(line);
+            let header = line.trim_end().strip_suffix(':')?;
+            if header.is_empty() || header.contains(' ') {
+                return None;
+            }
+            let (name, version) = split_scan_header(header);
             Some(XmakePackage {
                 name,
                 version,
@@ -317,10 +348,27 @@ mod tests {
     }
 
     #[test]
-    fn parses_installed_rows() {
-        let packages = parse_list("The packages:\n  -> zlib 1.3.1\n  -> tbox 1.7.6\n");
-        assert_eq!(packages.len(), 2);
+    fn parses_scan_headers() {
+        // Shape from xmake's scan.lua: `name-version:` headers with
+        // indented hash/config detail rows beneath each.
+        let packages = parse_scan(
+            "scanning packages ..\n\
+             zlib-1.3.1:\n\
+             \x20 -> 4b0f9d97a61c4289ad7e8ef65f9f0d48: linux, x86_64\n\
+             \x20   -> {shared = false}\n\
+             c-ares-1.34.5:\n\
+             \x20 -> 8e26c817f4b6e4c69a63aaf00e0d0f1a: linux, x86_64, unused\n\
+             tbox-master:\n\
+             \x20 -> 1d3c8a05b2ef4f00a3b1a1c9e75d10bb: linux, x86_64\n",
+        );
+        assert_eq!(packages.len(), 3);
+        assert_eq!(packages[0].name, "zlib");
         assert_eq!(packages[0].version.as_deref(), Some("1.3.1"));
+        assert_eq!(packages[1].name, "c-ares");
+        assert_eq!(packages[1].version.as_deref(), Some("1.34.5"));
+        assert_eq!(packages[2].name, "tbox");
+        assert_eq!(packages[2].version.as_deref(), Some("master"));
+        assert_eq!(packages[0].state, InstallState::Installed);
     }
 
     #[test]
@@ -336,7 +384,7 @@ mod tests {
     }
 }
 
-/// The package type this backend will produce once implemented.
+/// A package as xmake / xrepo describes it.
 #[derive(Debug)]
 pub struct XmakePackage {
     pub name: String,

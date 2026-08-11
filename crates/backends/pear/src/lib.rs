@@ -5,7 +5,9 @@
 //! parsers only accept rows carrying a version-shaped column. pear has no
 //! yes-flag - it rarely prompts, though PECL-style extension builds may
 //! ask configure questions interactively - and `--pretend` gives install
-//! and upgrade a native dry run. The install tree is often root-owned on
+//! and upgrade a native dry run. Refresh is `pear update-channels`, which
+//! re-fetches every registered channel's definition (`channel-update` is
+//! its one-channel sibling). The install tree is often root-owned on
 //! system PHP setups, but the approved wiring keeps mutations unelevated.
 
 use std::path::PathBuf;
@@ -121,6 +123,7 @@ impl PackageManager for Manager {
     fn capabilities(&self) -> Capabilities {
         Capabilities::CORE
             | Capabilities::SEARCH
+            | Capabilities::REFRESH
             | Capabilities::UPGRADE
             | Capabilities::LIST_OUTDATED
     }
@@ -200,6 +203,15 @@ impl PackageManager for Manager {
         }
         let output = output.require_success()?;
         Ok(boxed(parse_search(&output.stdout)))
+    }
+
+    async fn refresh(&self, ctx: &OpContext) -> Result<()> {
+        if ctx.dry_run {
+            return Err(Error::Other(format!("{ID}: refresh has no dry-run mode")));
+        }
+        // `update-channels` re-fetches every registered channel definition;
+        // like every other pear mutation here, it runs unelevated.
+        self.run(self.cmd().arg("update-channels"), ctx).await
     }
 
     async fn upgrade(&self, packages: &[PackageRequest], ctx: &OpContext) -> Result<()> {
