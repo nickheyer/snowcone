@@ -1,9 +1,9 @@
 # snowcone
-Very similar to mixing all the 7-11 slushee flavors together, but with linux package managers.
+Very similar to mixing all the 7-11 slushee flavors together, but with package managers.
 
 ## Install
 
-With cargo:
+With cargo (any os):
 
 ```sh
 cargo install --git https://github.com/nickheyer/snowcone snowcone
@@ -117,7 +117,7 @@ Global flags: `-m <your manager, ie: pacman>` to target specific backends, `--js
 
 ## Language / ecosystem package managers
 
-These run on Linux regardless of distro and manage packages for a language runtime.
+These run regardless of distro and manage packages for a language runtime.
 
 | Ecosystem | Package manager(s) |
 |---|---|
